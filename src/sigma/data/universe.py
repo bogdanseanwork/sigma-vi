@@ -62,3 +62,16 @@ def build(assets: Iterable[Mapping[str, Any]], sec_tickers: Mapping[str, Mapping
 def price_symbols(rows: Iterable[Mapping[str, Any]]) -> list[str]:
     """Symbols to download prices for: common stocks (active and delisted) plus benchmark ETFs."""
     return sorted(r["symbol"] for r in rows if r["kind"] == "common" or r["symbol"] in BENCHMARK_ETFS)
+
+
+def fill_ciks(rows: Iterable[Mapping[str, Any]], extra: Mapping[str, int]) -> list[dict[str, Any]]:
+    """Add a company id from ``extra`` (symbol -> CIK) where the SEC ticker file had none."""
+    out = []
+    for r in rows:
+        r = dict(r)
+        if r.get("cik") is None or r["cik"] != r["cik"]:  # None or NaN
+            cik = extra.get(r["symbol"])
+            if cik is not None:
+                r["cik"], r["cik_source"] = cik, "massive"
+        out.append(r)
+    return out

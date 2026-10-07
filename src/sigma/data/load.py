@@ -1,7 +1,7 @@
 """Load the whole-market dataset onto this machine.
 
     python -m sigma.data.load            # everything: universe, fundamentals, prices, report
-    python -m sigma.data.load prices     # one step: universe | fundamentals | prices | sectors | report
+    python -m sigma.data.load prices     # one step: universe | links | fundamentals | prices | sectors | report
 
 Resumable: finished pieces are skipped on the next run, so a sleep or crash never costs more than the
 piece in progress. Output goes to the data directory (see sigma.data.paths) and a plain-text coverage
@@ -23,7 +23,7 @@ from typing import Any
 import pandas as pd
 
 from sigma.core.config import DEFAULT_DOTENV, export_dotenv
-from sigma.data import alpaca, sec, universe
+from sigma.data import alpaca, massive, sec, universe
 from sigma.data.http import HttpClient, HttpError
 from sigma.data.paths import data_dir
 from sigma.data.store import ParquetStore
@@ -48,6 +48,8 @@ def _clients(env: Mapping[str, str]) -> dict[str, HttpClient]:  # pragma: no cov
         "alpaca_data": HttpClient("https://data.alpaca.markets", alpaca_auth, per_minute=180),
         "sec": HttpClient("https://www.sec.gov", sec_headers, per_minute=300),  # SEC allows 10/s
         "sec_data": HttpClient("https://data.sec.gov", sec_headers, per_minute=300),
+        "massive": HttpClient("https://api.massive.com",
+                              {"Authorization": f"Bearer {env['MASSIVE_API_KEY']}"}, per_minute=4),
     }
 
 
@@ -63,10 +65,32 @@ def step_universe(store: ParquetStore, clients: Mapping[str, HttpClient], log: L
     log(f"  {len(assets):,} listings received; fetching SEC ticker-to-company map...")
     tickers = sec.parse_company_tickers(clients["sec"].get_json("/files/company_tickers_exchange.json"))
     rows = universe.build(assets, tickers)
+    if store.exists("ticker_links.parquet"):  # keep delisted-company links across universe rebuilds
+        links = store.read("ticker_links.parquet")
+        rows = universe.fill_ciks(rows, dict(zip(links["symbol"], links["cik"].astype(int), strict=True)))
     n = store.write(rows, "universe.parquet")
     kinds = pd.Series([r["kind"] for r in rows]).value_counts().to_dict()
     log(f"  universe saved: {n:,} listings on major exchanges {kinds}")
     return n
+
+
+def step_links(store: ParquetStore, clients: Mapping[str, HttpClient], log: Log = _log) -> int:
+    """Company ids for delisted stocks (Massive free reference data), merged into the universe."""
+    log("Links: fetching historical ticker-to-company ids for delisted stocks (about 5 requests/min)...")
+
+    def fetch(path: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
+        return clients["massive"].get_json(path, params)
+
+    found = list(massive.iter_delisted(fetch))
+    log(f"  {len(found):,} delisted common-stock records received")
+    mapping = massive.cik_by_symbol(found)
+    store.write([{"symbol": s, "cik": c} for s, c in mapping.items()], "ticker_links.parquet")
+    uni = store.read("universe.parquet")
+    rows = universe.fill_ciks(uni.to_dict("records"), mapping)
+    store.write(rows, "universe.parquet")
+    linked = sum(1 for r in rows if r.get("cik_source") == "massive")
+    log(f"  linked {linked:,} more listings to SEC companies")
+    return linked
 
 
 def step_fundamentals(store: ParquetStore, clients: Mapping[str, HttpClient], log: Log = _log) -> int:
@@ -231,20 +255,24 @@ def coverage_report(store: ParquetStore) -> str:
                 f"  delisted common stocks with prices: "
                 f"{int(delisted['symbol'].isin(have).sum()):,} of {len(delisted):,}",
             ]
+    gone = common[~common["active"]]
+    if len(gone):
+        lines.append(f"delisted common stocks linked to an SEC company: "
+                     f"{int(gone['cik'].notna().sum()):,} of {len(gone):,}")
     return "\n".join(lines)
 
 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — orchestration
     ap = argparse.ArgumentParser(prog="python -m sigma.data.load")
     ap.add_argument("step", nargs="?", default="all",
-                    choices=["all", "universe", "fundamentals", "prices", "sectors", "report"])
+                    choices=["all", "universe", "links", "fundamentals", "prices", "sectors", "report"])
     args = ap.parse_args(argv)
     export_dotenv()
     env = dict(os.environ)
     store = ParquetStore(data_dir())
     _log(f"data folder: {store.root}")
     clients = _clients(env) if args.step != "report" else {}
-    steps = ["universe", "fundamentals", "prices", "sectors"] if args.step == "all" else [args.step]
+    steps = ["universe", "links", "fundamentals", "prices", "sectors"] if args.step == "all" else [args.step]
     for step in steps:
         if step == "universe":
             step_universe(store, clients)
@@ -254,6 +282,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — orch
             if not store.exists("universe.parquet"):
                 step_universe(store, clients)
             step_prices(store, clients)
+        elif step == "links":
+            step_links(store, clients)
         elif step == "sectors":
             step_sectors(store, clients)
     report = coverage_report(store)

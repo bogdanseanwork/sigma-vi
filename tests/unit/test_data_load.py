@@ -100,6 +100,24 @@ class LoaderTests(unittest.TestCase):
         finally:
             sec.PARSER_VERSION = old
 
+    def test_links_fill_delisted_company_ids_and_survive_a_universe_rebuild(self):
+        load.step_universe(self.store, self.clients, self.log.append)
+        massive = FakeClient({"/v3/reference/tickers": {"results": [
+            {"ticker": "OLDCO", "name": "Old Co", "type": "CS", "cik": "0000555555", "active": False,
+             "delisted_utc": "2019-01-02T05:00:00Z"}], "next_url": None}})
+        self.clients["massive"] = massive
+        n = load.step_links(self.store, self.clients, self.log.append)
+        self.assertEqual(n, 1)
+        uni = self.store.read("universe.parquet").set_index("symbol")
+        self.assertEqual(int(uni.loc["OLDCO", "cik"]), 555555)
+        self.assertEqual(uni.loc["OLDCO", "cik_source"], "massive")
+        self.assertEqual(int(uni.loc["AAPL", "cik"]), 320193)           # SEC link untouched
+        load.step_universe(self.store, self.clients, self.log.append)   # rebuild keeps the links
+        self.assertEqual(int(self.store.read("universe.parquet").set_index("symbol").loc["OLDCO", "cik"]),
+                         555555)
+        self.assertIn("delisted common stocks linked to an SEC company: 1 of 1",
+                      load.coverage_report(self.store))
+
     def test_sectors_fetch_sic_once_per_company(self):
         load.step_universe(self.store, self.clients, self.log.append)
         subs = FakeClient({"/submissions/CIK0000320193.json": {

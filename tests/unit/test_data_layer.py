@@ -164,3 +164,52 @@ class UniverseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MassiveTests(unittest.TestCase):
+    PAGES = [
+        {"results": [
+            {"ticker": "AABA", "name": "Altaba Inc. Common Stock", "type": "CS", "cik": "0001011006",
+             "active": False, "delisted_utc": "2019-10-07T04:00:00Z"},
+            {"ticker": "ZZZ", "name": "Old Zzz", "type": "CS", "cik": "0000000111", "active": False,
+             "delisted_utc": "2005-01-03T05:00:00Z"}],
+         "next_url": "https://api.massive.com/v3/reference/tickers?cursor=abc"},
+        {"results": [
+            {"ticker": "ZZZ", "name": "New Zzz Corp", "type": "CS", "cik": "0000000222", "active": False,
+             "delisted_utc": "2021-06-01T04:00:00Z"},
+            {"ticker": "NOCIK", "name": "No Cik", "type": "CS", "active": False}]},
+    ]
+
+    def test_pagination_follows_the_cursor(self):
+        from sigma.data import massive
+        seen = []
+        pages = iter(self.PAGES)
+
+        def fetch(path, params):
+            seen.append(dict(params))
+            return next(pages)
+
+        rows = list(massive.iter_delisted(fetch))
+        self.assertEqual(len(rows), 3)  # the record without a company id is dropped
+        self.assertNotIn("cursor", seen[0])
+        self.assertEqual(seen[1]["cursor"], "abc")
+        self.assertEqual(seen[0]["type"], "CS")
+        self.assertEqual(seen[0]["active"], "false")
+
+    def test_cik_is_an_int_and_delisting_is_a_date(self):
+        from sigma.data import massive
+        rows = list(massive.iter_delisted(lambda p, q: self.PAGES[1] | {"next_url": None}))
+        self.assertEqual(rows[0]["cik"], 222)
+        self.assertEqual(rows[0]["delisted"], date(2021, 6, 1))
+
+    def test_latest_delisting_wins_when_a_symbol_was_reused(self):
+        from sigma.data import massive
+        rows = [r for p in self.PAGES for r in massive.parse_results(p)]
+        self.assertEqual(massive.cik_by_symbol(rows)["ZZZ"], 222)
+
+    def test_fill_missing_ciks_only(self):
+        rows = [{"symbol": "AAPL", "cik": 320193}, {"symbol": "ZZZ", "cik": None},
+                {"symbol": "ABC", "cik": None}]
+        out = universe.fill_ciks(rows, {"AAPL": 999, "ZZZ": 222})
+        self.assertEqual([r["cik"] for r in out], [320193, 222, None])
+        self.assertEqual([r.get("cik_source") for r in out], [None, "massive", None])
