@@ -14,9 +14,10 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pandas as pd
 
@@ -174,6 +175,40 @@ def _log(msg: str) -> None:
     sys.stdout.flush()
 
 
+def load_inputs(store: Any, as_of: date | None, log: Callable[[str], None] | None = None
+                ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, date]:
+    """Everything the screen needs as of one date, using only data public by then."""
+    log = log or _log
+    uni = store.read("universe.parquet")
+    if store.exists("sectors"):
+        sectors = store.read("sectors")
+    else:
+        log("No sector data yet - run:  .\\.venv\\Scripts\\python.exe -m sigma.data.load sectors")
+        sectors = pd.DataFrame(columns=["cik", "sic", "sector"])
+    if as_of is None:
+        spy = store.read("prices", "raw", columns=["symbol", "date"], filters=[("symbol", "=", "SPY")])
+        as_of = max(_dates(spy, "date")["date"])
+    log(f"Screen as of {as_of}: loading prices...")
+    since = as_of - timedelta(days=400)
+    pf = [("date", ">=", since), ("date", "<=", as_of)]
+    cols = ["symbol", "date", "close", "volume"]
+    adj = _dates(store.read("prices", "all", columns=cols, filters=pf), "date")
+    raw = _dates(store.read("prices", "raw", columns=cols, filters=pf), "date")
+    mkt = market.features(adj, raw, as_of)
+    log(f"  price features for {len(mkt):,} symbols; loading fundamentals known by {as_of}...")
+    ciks = sorted({int(c) for c in uni.loc[uni["kind"] == "common", "cik"].dropna()})
+    window = as_of - timedelta(days=int(4.6 * 365))  # 3-year growth needs ~4 years of periods
+    facts = store.read("fundamentals",
+                       columns=["cik", "metric", "tag", "tag_rank", "start", "end", "period", "value",
+                                "filed", "known_at"],
+                       filters=[("known_at", "<=", as_of), ("end", ">=", window), ("cik", "in", ciks)])
+    facts = _dates(facts, "start", "end", "filed", "known_at")
+    log(f"  {len(facts):,} facts; building trailing-twelve-month figures...")
+    fund = fundamentals.snapshot(facts, as_of)
+    log(f"  fundamentals for {len(fund):,} companies; scoring...")
+    return uni, sectors, fund, mkt, as_of
+
+
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — reads the local data store
     from sigma.data.paths import data_dir
     from sigma.data.store import ParquetStore
@@ -183,35 +218,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — read
     ap.add_argument("--top", type=int, default=50)
     args = ap.parse_args(argv)
     store = ParquetStore(data_dir())
-    uni = store.read("universe.parquet")
-    if store.exists("sectors"):
-        sectors = store.read("sectors")
-    else:
-        _log("No sector data yet - run:  .\\.venv\\Scripts\\python.exe -m sigma.data.load sectors")
-        sectors = pd.DataFrame(columns=["cik", "sic", "sector"])
-    if args.as_of is None:
-        spy = store.read("prices", "raw", columns=["symbol", "date"], filters=[("symbol", "=", "SPY")])
-        as_of = max(_dates(spy, "date")["date"])
-    else:
-        as_of = args.as_of
-    _log(f"Screen as of {as_of}: loading prices...")
-    since = as_of - timedelta(days=400)
-    pf = [("date", ">=", since), ("date", "<=", as_of)]
-    cols = ["symbol", "date", "close", "volume"]
-    adj = _dates(store.read("prices", "all", columns=cols, filters=pf), "date")
-    raw = _dates(store.read("prices", "raw", columns=cols, filters=pf), "date")
-    mkt = market.features(adj, raw, as_of)
-    _log(f"  price features for {len(mkt):,} symbols; loading fundamentals known by {as_of}...")
-    ciks = sorted({int(c) for c in uni.loc[uni["kind"] == "common", "cik"].dropna()})
-    window = as_of - timedelta(days=int(4.6 * 365))  # 3-year growth needs ~4 years of periods
-    facts = store.read("fundamentals",
-                       columns=["cik", "metric", "tag", "tag_rank", "start", "end", "period", "value",
-                                "filed", "known_at"],
-                       filters=[("known_at", "<=", as_of), ("end", ">=", window), ("cik", "in", ciks)])
-    facts = _dates(facts, "start", "end", "filed", "known_at")
-    _log(f"  {len(facts):,} facts; building trailing-twelve-month figures...")
-    fund = fundamentals.snapshot(facts, as_of)
-    _log(f"  fundamentals for {len(fund):,} companies; scoring...")
+    uni, sectors, fund, mkt, as_of = load_inputs(store, args.as_of)
     f = Filters()
     ranked, funnel = build_screen(fund, mkt, uni, sectors, f)
     text = report(ranked, funnel, as_of, f, top=args.top)
