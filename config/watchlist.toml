@@ -1,0 +1,162 @@
+# SIGMA VI watchlist: what the daily refresh tracks. Edit freely; stocks rotate through the free
+# Alpha Vantage allowance (about 20 per day). Source: screen of 2026-10-06 (provisional), liquid names only.
+
+[[stock]]
+symbol = "MU"
+name = "Micron Technology, Inc. Common Stock"
+sector = "Information Technology"
+
+[[stock]]
+symbol = "SNDK"
+name = "Sandisk Corporation Common Stock"
+sector = "Information Technology"
+
+[[stock]]
+symbol = "PARR"
+name = "Par Pacific Holdings, Inc. Common Stock"
+sector = "Energy"
+
+[[stock]]
+symbol = "LQDA"
+name = "Liquidia Corporation Common Stock"
+sector = "Health Care"
+
+[[stock]]
+symbol = "DINO"
+name = "HF Sinclair Corporation"
+sector = "Industrials"
+
+[[stock]]
+symbol = "DAVE"
+name = "Dave Inc. Class A Common Stock"
+sector = "Financials"
+
+[[stock]]
+symbol = "INCY"
+name = "Incyte Corp. Common Stock"
+sector = "Health Care"
+
+[[stock]]
+symbol = "SEZL"
+name = "Sezzle Inc. Common Stock"
+sector = "Industrials"
+
+[[stock]]
+symbol = "TPR"
+name = "Tapestry, Inc. Common Stock"
+sector = "Consumer Discretionary"
+
+[[stock]]
+symbol = "RELY"
+name = "Remitly Global, Inc. Common Stock"
+sector = "Industrials"
+
+[[stock]]
+symbol = "LNC"
+name = "Lincoln National Corp."
+sector = "Financials"
+
+[[stock]]
+symbol = "VLO"
+name = "Valero Energy Corporation"
+sector = "Energy"
+
+[[stock]]
+symbol = "INSW"
+name = "International Seaways, Inc. Common Stock"
+sector = "Industrials"
+
+[[stock]]
+symbol = "CDNA"
+name = "CareDx, Inc. Common Stock"
+sector = "Health Care"
+
+[[stock]]
+symbol = "EXE"
+name = "Expand Energy Corporation Common Stock"
+sector = "Energy"
+
+[[stock]]
+symbol = "OSCR"
+name = "Oscar Health, Inc."
+sector = "Financials"
+
+[[stock]]
+symbol = "MO"
+name = "Altria Group, Inc."
+sector = "Consumer Staples"
+
+[[stock]]
+symbol = "NVDA"
+name = "NVIDIA Corporation Common Stock"
+sector = "Information Technology"
+
+[[stock]]
+symbol = "AROC"
+name = "Archrock Inc"
+sector = "Utilities"
+
+[[stock]]
+symbol = "MET"
+name = "MetLife, Inc."
+sector = "Financials"
+
+[[stock]]
+symbol = "TGTX"
+name = "TG Therapeutics, Inc. Common Stock"
+sector = "Health Care"
+
+[[stock]]
+symbol = "TVTX"
+name = "Travere Therapeutics, Inc. Common Stock"
+sector = "Health Care"
+
+[[stock]]
+symbol = "ALNY"
+name = "Alnylam Pharmaceuticals, Inc. Common Stock"
+sector = "Health Care"
+
+[[stock]]
+symbol = "INOD"
+name = "Innodata Inc. Common Stock"
+sector = "Information Technology"
+
+[[stock]]
+symbol = "RNG"
+name = "RINGCENTRAL, INC."
+sector = "Information Technology"
+
+[[stock]]
+symbol = "COCO"
+name = "The Vita Coco Company, Inc. Common Stock"
+sector = "Consumer Staples"
+
+[[stock]]
+symbol = "HPE"
+name = "Hewlett Packard Enterprise Company"
+sector = "Information Technology"
+
+[[stock]]
+symbol = "PTGX"
+name = "Protagonist Therapeutics, Inc. Common Stock"
+sector = "Health Care"
+
+[[stock]]
+symbol = "CHRD"
+name = "Chord Energy Corporation Common Stock"
+sector = "Energy"
+
+[[stock]]
+symbol = "PLTR"
+name = "Palantir Technologies Inc. Class A Common Stock"
+sector = "Information Technology"
+
+[[benchmark]]
+symbol = "SPY"
+name = "SPDR S&P 500 ETF"
+sector = "Benchmark"
+
+[[benchmark]]
+symbol = "QQQ"
+name = "Invesco QQQ ETF"
+sector = "Benchmark"
