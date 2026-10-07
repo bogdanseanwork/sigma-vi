@@ -16,7 +16,6 @@ from enum import StrEnum
 class Integration(StrEnum):
     MASSIVE = "massive"
     ALPHA_VANTAGE = "alpha_vantage"
-    DALOOPA = "daloopa"
     SEC_EDGAR = "sec_edgar"
     FRED = "fred"
     EXA = "exa"
@@ -31,7 +30,6 @@ class Integration(StrEnum):
 REQUIRED_ENV: dict[Integration, tuple[str, ...]] = {
     Integration.MASSIVE: ("MASSIVE_API_KEY",),
     Integration.ALPHA_VANTAGE: ("ALPHA_VANTAGE_API_KEY",),
-    Integration.DALOOPA: ("DALOOPA_API_KEY",),
     Integration.SEC_EDGAR: ("SEC_EDGAR_USER_AGENT",),
     Integration.FRED: ("FRED_API_KEY",),
     Integration.EXA: ("EXA_API_KEY",),

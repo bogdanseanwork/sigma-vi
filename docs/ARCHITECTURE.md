@@ -30,19 +30,19 @@ Three rules shape every decision below.
 
 ## 2. Integration inventory (as of 2026-10-07)
 
-| Requested | Role | Status in build environment | Path to production |
+| Requested | Role | Status | Notes |
 |---|---|---|---|
-| Massive | prices, options, corporate actions | MCP connector live | REST client behind `MarketDataProvider` (key: `MASSIVE_API_KEY`) |
-| Alpha Vantage | fundamentals, estimates, earnings, transcripts, insider, listing status incl. delisted | MCP connector live | REST client behind `FundamentalsProvider` / `EstimatesProvider` |
-| Daloopa | source-linked fundamentals, KPIs, guidance | **not connected** | Preferred `FundamentalsProvider` once keyed; Alpha Vantage + EDGAR XBRL are the fallback |
-| SEC EDGAR | filings, XBRL company facts | no connector needed (public API) | `FilingsProvider`; requires `SEC_EDGAR_USER_AGENT`, ≤10 req/s |
-| FRED | macro series incl. ALFRED vintages | MCP connector live | `MacroProvider`; **use ALFRED vintages for backtests** (see VALIDATION §3) |
-| Alpaca | account, positions, paper orders | **not connected** | `BrokerProvider`, paper endpoint only; live endpoint hard-disabled in code |
-| Exa | targeted web research | **not connected** | `ResearchProvider`; fallback is the agent host's web search |
-| Neon / Postgres | durable store | **not connected** | `DATABASE_URL`; schema in `db/migrations` |
-| GitHub | source control, CI | **no account linked to Claude** | push this repo once linked |
-| Context7, Superpowers | build-time tooling | available | used during development, not at runtime |
-| Serena | code navigation | not available | not required at runtime |
+| Massive | prices, options, corporate actions, dividends | connector live | used for the reconciliation fixture; `MASSIVE_API_KEY` for the REST adapter |
+| Alpha Vantage | fundamentals, estimates, earnings, transcripts, insider, listing status incl. delisted | connector live | free key: ≤3 analytics metrics per call. **Conventions differ from ours** (see §4.4) |
+| SEC EDGAR | filings, XBRL company facts | public API, no connector needed | **primary source for all financial-statement numbers**; requires `SEC_EDGAR_USER_AGENT`, ≤10 req/s |
+| Exa | document discovery: IR releases, presentations, shareholder letters, KPIs, guidance | connector live | replaces Daloopa's document role (§4.5) |
+| FRED | macro series incl. ALFRED vintages | connector live | backtests use vintages, never revised series |
+| Neon / Postgres | durable store | **live**: project `sigma-vi` (`twilight-mountain-23433069`), db `sigma_vi`, aws-us-east-1, Postgres 17 | schema 0001 applied and verified (44 tables, 8 append-only triggers) |
+| GitHub | source control | **live**: `bogdanseanwork/sigma-vi` | one commit per milestone |
+| Alpaca | account, positions, paper orders | no connector in registry | direct REST adapter, paper endpoint only |
+| Daloopa | — | **dropped** (no account available) | role split between EDGAR XBRL (numbers) and Exa (documents) |
+| Context7, Superpowers | build-time tooling | in use | Context7 verified the LiteLLM exception mapping |
+| Serena | code navigation | not available | not needed at runtime |
 
 Missing credentials are detected at boot by `sigma.core.config` (key *presence* only — values are
 never printed or logged). A provider without credentials is marked `unavailable` and skipped by
@@ -142,6 +142,28 @@ so a 2012 backtest sees the 2012 universe.
 Cache keys are `(provider, endpoint, normalized params)`; values store `retrieved_at`, `source_date`
 and a content hash. Agent research records the hashes of every input it consumed; when any input
 hash changes, only the dependent research is marked stale (spec §11 incremental research).
+
+### 4.4 Vendor conventions (verified 2026-10-07)
+
+The engine was reconciled against Alpha Vantage's analytics on 2025 AAPL/SPY data
+(`tests/integration/test_engine_vs_alpha_vantage.py`), matching to 1e-10 once conventions were
+aligned. Alpha Vantage analytics:
+
+- compute **total returns** (dividends reinvested). Price-only returns understated SPY's 2025 return
+  by 1.4 pp, so the engine provides `total_returns` and backtests always use it;
+- report **population** standard deviation (ddof=0); the engine uses sample (ddof=1) everywhere;
+- report a `MAX_DRAWDOWN` that is the worst run of **consecutive** down closes, not peak-to-trough.
+  It understated AAPL's 2025 drawdown (−23.0% vs the true −30.2%). SIGMA never uses vendor drawdowns
+  for risk limits.
+
+### 4.5 Fundamentals without Daloopa
+
+| Need | Source | How |
+|---|---|---|
+| Statement line items, segments, share counts | EDGAR XBRL company facts | normalised into `fundamentals` with `known_at` = filing acceptance time |
+| Company KPIs not in XBRL (ARR, NRR, backlog, users), guidance | Exa → full document fetch | Exa locates the filing exhibit / IR release; the full document (never search highlights, which garble tables) is parsed by an agent; every figure carries a citation |
+| Source authority | `sigma.providers.source_quality` | sec.gov = 5, company domains = 4, wires/exchanges = 3, everything else = 1; lookalike domains and unofficial SEC mirrors score 1 |
+| Cross-check | Research Auditor | any figure present in both an Exa-located document and XBRL must agree; disagreements are flagged, XBRL wins |
 
 ## 5. Agent system
 

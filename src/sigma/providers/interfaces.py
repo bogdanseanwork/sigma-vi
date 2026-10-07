@@ -2,7 +2,7 @@
 
 Engines and agents depend only on these protocols. Each vendor gets an adapter in its own
 subpackage (``sigma.providers.massive``, ``.alpha_vantage``, ``.sec_edgar``, ``.fred``,
-``.daloopa``, ``.alpaca``, ``.exa``) that implements one or more of them.
+``.alpaca``, ``.exa``) that implements one or more of them.
 
 Every record that describes the world carries both ``as_of`` (what period/instant it describes) and
 ``known_at`` (when it became public). Point-in-time consumers filter on ``known_at``; adapters that

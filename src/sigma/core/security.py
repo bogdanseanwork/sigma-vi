@@ -19,7 +19,6 @@ SECRET_ENV_VARS: tuple[str, ...] = (
     "DATABASE_URL",
     "MASSIVE_API_KEY",
     "ALPHA_VANTAGE_API_KEY",
-    "DALOOPA_API_KEY",
     "FRED_API_KEY",
     "EXA_API_KEY",
     "ALPACA_API_KEY_ID",

@@ -53,6 +53,9 @@ class LiteLLMClient:
             raise RateLimited(redact(str(e))) from None
         except (
             lt.exceptions.AuthenticationError,
+            lt.exceptions.PermissionDeniedError,
+            lt.exceptions.NotFoundError,  # unknown/retired model id in config/models.toml → fall back
+
             lt.exceptions.ServiceUnavailableError,
             lt.exceptions.APIConnectionError,
             lt.exceptions.Timeout,
