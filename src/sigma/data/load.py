@@ -1,7 +1,7 @@
 """Load the whole-market dataset onto this machine.
 
     python -m sigma.data.load            # everything: universe, fundamentals, prices, report
-    python -m sigma.data.load prices     # one step: universe | fundamentals | prices | report
+    python -m sigma.data.load prices     # one step: universe | fundamentals | prices | sectors | report
 
 Resumable: finished pieces are skipped on the next run, so a sleep or crash never costs more than the
 piece in progress. Output goes to the data directory (see sigma.data.paths) and a plain-text coverage
@@ -47,6 +47,7 @@ def _clients(env: Mapping[str, str]) -> dict[str, HttpClient]:  # pragma: no cov
         "alpaca_trading": HttpClient("https://paper-api.alpaca.markets", alpaca_auth, per_minute=150),
         "alpaca_data": HttpClient("https://data.alpaca.markets", alpaca_auth, per_minute=180),
         "sec": HttpClient("https://www.sec.gov", sec_headers, per_minute=300),  # SEC allows 10/s
+        "sec_data": HttpClient("https://data.sec.gov", sec_headers, per_minute=300),
     }
 
 
@@ -108,6 +109,43 @@ def step_fundamentals(store: ParquetStore, clients: Mapping[str, HttpClient], lo
     done_marker.write_text(stamp)  # written last: only a complete build is ever marked done
     log(f"  fundamentals saved: {companies:,} companies, {total:,} facts")
     return total
+
+
+def step_sectors(store: ParquetStore, clients: Mapping[str, HttpClient], log: Log = _log) -> int:
+    """SIC industry code per company from the SEC's submissions API (one request per company, once)."""
+    from sigma.factors.sectors import sector_for_sic
+
+    uni = store.read("universe.parquet")
+    ciks = sorted({int(c) for c in uni.loc[uni["kind"] == "common", "cik"].dropna()})
+    have = set(store.read("sectors", columns=["cik"])["cik"]) if store.exists("sectors") else set()
+    todo = [c for c in ciks if c not in have]
+    log(f"Sectors: {len(todo):,} of {len(ciks):,} companies still need an industry code")
+    batch: list[dict[str, Any]] = []
+    done = 0
+
+    def flush() -> None:
+        nonlocal batch
+        if batch:
+            store.write(batch, "sectors", f"part-{datetime.now():%Y%m%d%H%M%S%f}.parquet")
+            batch = []
+
+    for cik in todo:
+        try:
+            doc = clients["sec_data"].get_json(f"/submissions/CIK{cik:010d}.json")
+        except HttpError as e:
+            if e.status != 404:
+                raise
+            doc = {}
+        sic = int(doc["sic"]) if str(doc.get("sic") or "").isdigit() else None
+        batch.append({"cik": cik, "sic": sic, "sic_description": doc.get("sicDescription") or "",
+                      "sector": sector_for_sic(sic)})
+        done += 1
+        if len(batch) >= 250:
+            flush()
+            log(f"  {done:,}/{len(todo):,}")
+    flush()
+    log(f"  sectors saved for {done:,} companies")
+    return done
 
 
 def chunks(items: Sequence[str], size: int) -> list[list[str]]:
@@ -199,14 +237,14 @@ def coverage_report(store: ParquetStore) -> str:
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — orchestration
     ap = argparse.ArgumentParser(prog="python -m sigma.data.load")
     ap.add_argument("step", nargs="?", default="all",
-                    choices=["all", "universe", "fundamentals", "prices", "report"])
+                    choices=["all", "universe", "fundamentals", "prices", "sectors", "report"])
     args = ap.parse_args(argv)
     export_dotenv()
     env = dict(os.environ)
     store = ParquetStore(data_dir())
     _log(f"data folder: {store.root}")
     clients = _clients(env) if args.step != "report" else {}
-    steps = ["universe", "fundamentals", "prices"] if args.step == "all" else [args.step]
+    steps = ["universe", "fundamentals", "prices", "sectors"] if args.step == "all" else [args.step]
     for step in steps:
         if step == "universe":
             step_universe(store, clients)
@@ -216,6 +254,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — orch
             if not store.exists("universe.parquet"):
                 step_universe(store, clients)
             step_prices(store, clients)
+        elif step == "sectors":
+            step_sectors(store, clients)
     report = coverage_report(store)
     sys.stdout.write("\n" + report + "\n")
     (DEFAULT_DOTENV.parent / "data_report.txt").write_text(report + "\n", encoding="utf-8")

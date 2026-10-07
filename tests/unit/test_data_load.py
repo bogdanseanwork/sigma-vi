@@ -93,6 +93,21 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual(load.step_fundamentals(self.store, {}, self.log.append), 0)
         self.assertTrue(any("already built" in line for line in self.log))
 
+    def test_sectors_fetch_sic_once_per_company(self):
+        load.step_universe(self.store, self.clients, self.log.append)
+        subs = FakeClient({"/submissions/CIK0000320193.json": {
+            "cik": "320193", "name": "Apple Inc.", "sic": "3571", "sicDescription": "Electronic Computers"},
+            "/submissions/CIK0000789019.json": {"cik": "789019", "name": "MICROSOFT CORP", "sic": "7372",
+                                                "sicDescription": "Services-Prepackaged Software"}})
+        self.clients["sec_data"] = subs
+        load.step_sectors(self.store, self.clients, self.log.append)
+        s = self.store.read("sectors").set_index("cik")
+        self.assertEqual(s.loc[320193, "sector"], "Information Technology")
+        self.assertEqual(s.loc[789019, "sic"], 7372)
+        calls = len(subs.calls)
+        load.step_sectors(self.store, self.clients, self.log.append)  # resumable: nothing re-fetched
+        self.assertEqual(len(subs.calls), calls)
+
     def test_prices_resume_skips_finished_batches(self):
         load.step_universe(self.store, self.clients, self.log.append)
         load.step_prices(self.store, self.clients, self.log.append, end=date(2016, 1, 31))

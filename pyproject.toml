@@ -71,6 +71,9 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
 ignore = ["N803", "N806", "N818"]  # finance symbols (FCF, EV) and descriptive exception names
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501", "N812", "RUF005"]  # wide fixture rows; short module aliases (F, S) in tests
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

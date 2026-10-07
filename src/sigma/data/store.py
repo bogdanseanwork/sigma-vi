@@ -28,11 +28,16 @@ class ParquetStore:
         tmp.replace(dest)  # atomic: a half-written file never looks complete
         return len(df)
 
-    def read(self, *parts: str, columns: list[str] | None = None) -> pd.DataFrame:
+    def read(self, *parts: str, columns: list[str] | None = None,
+             filters: list[tuple[str, str, Any]] | None = None) -> pd.DataFrame:
+        """Read one file or every part in a folder; ``filters`` (pyarrow syntax) skip rows on read."""
         target = self.path(*parts)
+        kw: dict[str, Any] = {"columns": columns}
+        if filters:
+            kw["filters"] = filters
         if target.is_dir():
             files = sorted(target.glob("*.parquet"))
             if not files:
                 return pd.DataFrame(columns=columns or [])
-            return pd.concat((pd.read_parquet(f, columns=columns) for f in files), ignore_index=True)
-        return pd.read_parquet(target, columns=columns)
+            return pd.concat((pd.read_parquet(f, **kw) for f in files), ignore_index=True)
+        return pd.read_parquet(target, **kw)
