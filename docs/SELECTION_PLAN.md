@@ -16,7 +16,7 @@ a source and a date.
 | Whole-market universe incl. delisted | SEC submissions (tickers, exchanges, SIC) + Massive reference tickers (`active=false` for delisted) | all SEC filers; NYSE/NASDAQ/NYSE American flags | ✅ |
 | Point-in-time fundamentals | SEC `companyfacts.zip`, nightly bulk file of every XBRL fact with its `filed` date and accession number | 2009 onward (XBRL mandate), every filer | ✅ the backbone of the screen |
 | Daily prices, whole market | Massive "grouped daily": one call = every US stock for one day | free plan: 2 years, 5 calls/min → ~500 calls ≈ 2 hours, once | ✅ for the last 2 years |
-| Longer price history (backtests) | Alpaca free market data, 7+ years, 200 calls/min | IEX feed only: partial volume, thin small caps | ⚠️ needs a free Alpaca account; small-cap prices flagged |
+| Longer price history (backtests) | Alpaca free market data, **SIP (consolidated) feed from 2016** (verified on the user's key 2026-10-07; IEX feed only from 2021), 200 calls/min | full consolidated prices and volume | ✅ |
 | Delisted-stock prices before 2 years ago | Alpaca coverage of inactive symbols not guaranteed | — | ⚠️ survivorship bias measured and reported, not assumed away |
 | Corporate actions, dividends | Massive (free) | full | ✅ |
 | Macro and regimes | FRED / ALFRED vintages | decades | ✅ |
@@ -30,7 +30,7 @@ a source and a date.
 
 **Consequences, stated up front:**
 
-1. **Backtest window ≈ 2016–2026**, longer if Alpaca's history allows. It covers the 2018 drawdown,
+1. **Backtest window 2016–2026** (Alpaca's free consolidated history starts in 2016, verified). It covers the 2018 drawdown,
    the 2020 COVID crash, the 2020–21 speculative run, the 2022 inflation and rate shock, and the
    2023–25 recovery. It **does not** include 2000–02 or 2008–09, so crisis behaviour is studied
    through the simulation engine's stress generators, not through history.
