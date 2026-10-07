@@ -14,6 +14,10 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+# Exchange tickers: 1-5 letters, optional share-class/preferred suffix (BRK.B, BAC.PRB). Anything else
+# (CUSIP-like codes such as 0029900E0 that appear in some listings) is not a tradable ticker.
+TICKER = re.compile(r"^[A-Z]{1,5}(\.[A-Z]{1,3})?$")
+
 MAJOR_EXCHANGES = frozenset({"NYSE", "NASDAQ", "AMEX", "ARCA", "BATS"})
 BENCHMARK_ETFS = frozenset({"SPY", "QQQ", "IWB", "IWM", "RSP", "IWD", "IWF", "MTUM", "QUAL", "VLUE", "USMV"})
 
@@ -43,6 +47,8 @@ def build(assets: Iterable[Mapping[str, Any]], sec_tickers: Mapping[str, Mapping
         if a.get("class") != "us_equity" or a.get("exchange") not in MAJOR_EXCHANGES:
             continue
         symbol = str(a["symbol"]).upper()
+        if not TICKER.match(symbol):
+            continue
         sec = sec_tickers.get(symbol) or sec_tickers.get(symbol.replace(".", "-"))
         out.append({
             "symbol": symbol, "name": a.get("name") or "", "exchange": a["exchange"],

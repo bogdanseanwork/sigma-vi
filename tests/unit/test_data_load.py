@@ -66,6 +66,33 @@ class LoaderTests(unittest.TestCase):
         report = load.coverage_report(self.store)
         self.assertIn("delisted common stocks with prices: 1 of 1", report)
 
+    def test_prices_drop_symbols_the_provider_rejects(self):
+        from sigma.data.http import HttpError
+        load.step_universe(self.store, self.clients, self.log.append)
+        good = self.clients["alpaca_data"].responses["/v2/stocks/bars"]
+
+        def picky(params):
+            if "OLDCO" in params["symbols"].split(","):
+                raise HttpError(400, '{"message":"invalid symbol: OLDCO"}')
+            return good(params)
+
+        self.clients["alpaca_data"].responses["/v2/stocks/bars"] = picky
+        load.step_prices(self.store, self.clients, self.log.append, end=date(2016, 1, 31))
+        raw = self.store.read("prices", "raw")
+        self.assertEqual(sorted(raw["symbol"].unique()), ["AAPL", "MSFT", "SPY"])
+        self.assertTrue(any("OLDCO" in line for line in self.log))
+
+    def test_fundamentals_skip_when_already_built_from_this_file(self):
+        import zipfile
+        z = self.store.path("raw", "companyfacts.zip")
+        z.parent.mkdir(parents=True)
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.writestr("CIK0000320193.json", (FIX / "sec/CIK0000320193.json").read_text())
+        first = load.step_fundamentals(self.store, {}, self.log.append)
+        self.assertGreater(first, 0)
+        self.assertEqual(load.step_fundamentals(self.store, {}, self.log.append), 0)
+        self.assertTrue(any("already built" in line for line in self.log))
+
     def test_prices_resume_skips_finished_batches(self):
         load.step_universe(self.store, self.clients, self.log.append)
         load.step_prices(self.store, self.clients, self.log.append, end=date(2016, 1, 31))

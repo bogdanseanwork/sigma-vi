@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -23,7 +24,7 @@ import pandas as pd
 
 from sigma.core.config import DEFAULT_DOTENV, export_dotenv
 from sigma.data import alpaca, sec, universe
-from sigma.data.http import HttpClient
+from sigma.data.http import HttpClient, HttpError
 from sigma.data.paths import data_dir
 from sigma.data.store import ParquetStore
 
@@ -83,7 +84,12 @@ def step_fundamentals(store: ParquetStore, clients: Mapping[str, HttpClient], lo
 
         clients["sec"].download("/Archives/edgar/daily-index/xbrl/companyfacts.zip", zpath, progress)
     out_dir = store.path("fundamentals")
-    for old in out_dir.glob("*.parquet"):  # rebuilt in full from tonight's file
+    done_marker = out_dir / "_built_from.txt"
+    stamp = f"{zpath.stat().st_size}:{int(zpath.stat().st_mtime)}"
+    if done_marker.exists() and done_marker.read_text().strip() == stamp:
+        log("  fundamentals already built from this file - skipping.")
+        return 0
+    for old in out_dir.glob("*.parquet"):  # rebuilt in full from the new file
         old.unlink()
     log("  parsing every company's filings (keeps every version with its filing date)...")
     batch: list[dict[str, Any]] = []
@@ -98,6 +104,8 @@ def step_fundamentals(store: ParquetStore, clients: Mapping[str, HttpClient], lo
             log(f"  {companies:,} companies, {total:,} facts")
     if batch:
         total += store.write(batch, "fundamentals", f"part-{part:04d}.parquet")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    done_marker.write_text(stamp)  # written last: only a complete build is ever marked done
     log(f"  fundamentals saved: {companies:,} companies, {total:,} facts")
     return total
 
@@ -123,12 +131,28 @@ def step_prices(store: ParquetStore, clients: Mapping[str, HttpClient], log: Log
             def fetch(params: Mapping[str, Any]) -> Mapping[str, Any]:
                 return clients["alpaca_data"].get_json("/v2/stocks/bars", params)
 
-            rows = list(alpaca.iter_bars(fetch, batch, PRICE_START, end, adjustment))
+            rows = _bars_dropping_rejected(fetch, batch, end, adjustment, log)
             total += store.write(rows if rows else pd.DataFrame(columns=["symbol", "date"]),
                                  "prices", adjustment, name)
             log(f"  {adjustment}: batch {i + 1}/{len(batches)} done ({len(rows):,} bars)")
     log(f"  prices saved: {total:,} new bars")
     return total
+
+
+def _bars_dropping_rejected(fetch: alpaca.Fetch, batch: list[str], end: date, adjustment: str,
+                            log: Log) -> list[dict[str, Any]]:
+    """Fetch a batch; if the provider rejects a symbol, drop just that symbol and retry the batch."""
+    symbols = list(batch)
+    while symbols:
+        try:
+            return list(alpaca.iter_bars(fetch, symbols, PRICE_START, end, adjustment))
+        except HttpError as e:
+            m = re.search(r"invalid symbol: ([A-Za-z0-9.\-/]+)", str(e))
+            if e.status != 400 or not m or m.group(1) not in symbols:
+                raise
+            symbols.remove(m.group(1))
+            log(f"  skipped {m.group(1)}: the price provider does not recognise this symbol")
+    return []
 
 
 def coverage_report(store: ParquetStore) -> str:

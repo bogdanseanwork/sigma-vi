@@ -143,6 +143,13 @@ class UniverseTests(unittest.TestCase):
         self.assertEqual(self.u["AAPL"]["cik"], 320193)
         self.assertIsNone(self.u["OLDCO"]["cik"])
 
+    def test_non_ticker_symbols_excluded(self):
+        rows = universe.build([{"class": "us_equity", "exchange": "NYSE", "symbol": "0029900E0",
+                                "name": "Something Common Stock", "status": "inactive"},
+                               {"class": "us_equity", "exchange": "NYSE", "symbol": "BRK.B",
+                                "name": "Berkshire Hathaway Inc. Class B", "status": "active"}], {})
+        self.assertEqual([r["symbol"] for r in rows], ["BRK.B"])
+
     def test_price_universe(self):
         syms = universe.price_symbols(self.u.values())
         self.assertEqual(syms, ["AAPL", "MSFT", "OLDCO", "SPY"])  # common + benchmark ETFs, sorted
