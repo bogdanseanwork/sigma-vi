@@ -139,6 +139,16 @@ def _probes(env: Mapping[str, str]) -> dict[str, Probe | None]:  # pragma: no co
             ).fetchone()[0]
         return f"connected; {tables} tables; live_trading_enabled={flag}"
 
+    def alpaca() -> str:
+        auth = {"APCA-API-KEY-ID": env["ALPACA_API_KEY_ID"],
+                "APCA-API-SECRET-KEY": env["ALPACA_API_SECRET_KEY"]}
+        acct = _get_json("https://paper-api.alpaca.markets/v2/account", auth)  # paper endpoint, read-only
+        bars = _get_json("https://data.alpaca.markets/v2/stocks/bars?symbols=AAPL&timeframe=1Day"
+                         "&start=2016-01-04&end=2016-01-08&feed=iex&limit=5", auth)
+        n = len(bars.get("bars", {}).get("AAPL", []))
+        history = "price history reaches 2016" if n else "NO bars for Jan 2016 - history is shorter"
+        return f"paper account {acct.get('status', '?')}; {history}"
+
     return {
         "fred": fred if has(Integration.FRED) else None,
         "sec_edgar": sec_edgar if has(Integration.SEC_EDGAR) else None,
@@ -148,6 +158,7 @@ def _probes(env: Mapping[str, str]) -> dict[str, Probe | None]:  # pragma: no co
         "gemini": gemini if has(Integration.GEMINI) else None,
         "ollama": ollama if has(Integration.OLLAMA) else None,
         "neon_postgres": postgres if has(Integration.POSTGRES) else None,
+        "alpaca": alpaca if has(Integration.ALPACA_PAPER) else None,
     }
 
 
