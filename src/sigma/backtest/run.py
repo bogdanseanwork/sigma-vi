@@ -128,6 +128,15 @@ def render(res: dict[str, Any], top_n: int = 40) -> str:
     return "\n".join(L)
 
 
+def price_matrix(px: pd.DataFrame) -> pd.DataFrame:
+    """Adjusted closes as a dates x symbols matrix (duplicate bars collapsed)."""
+    from sigma.factors.market import dedupe_bars
+
+    wide = dedupe_bars(px).pivot(index="date", columns="symbol", values="close")
+    wide.index = pd.to_datetime(wide.index)
+    return wide.sort_index()
+
+
 def _log(msg: str) -> None:
     sys.stdout.write(f"[{datetime.now():%H:%M:%S}] {msg}\n")
     sys.stdout.flush()
@@ -166,8 +175,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — read
     store = ParquetStore(data_dir())
     _log("Loading adjusted prices...")
     px = _dates(store.read("prices", "all", columns=["symbol", "date", "close"]), "date")
-    wide = px.pivot(index="date", columns="symbol", values="close")
-    wide.index = pd.to_datetime(wide.index)
+    wide = price_matrix(px)
     days = [d.date() for d in wide.index]
     end = max(days) if args.unlock_holdout else sp.validation_end
     dates = engine.rebalance_dates(days, args.start, end, args.freq)

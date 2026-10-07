@@ -17,6 +17,11 @@ TRADING_DAYS = 252
 MONTH = 21
 
 
+def dedupe_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """One bar per symbol-day (the last one loaded wins): repeated loads can leave duplicates."""
+    return df.drop_duplicates(["symbol", "date"], keep="last").reset_index(drop=True)
+
+
 def _ret(c: np.ndarray, back_end: int, back_start: int) -> float:
     if len(c) <= back_start:
         return math.nan
@@ -25,8 +30,8 @@ def _ret(c: np.ndarray, back_end: int, back_start: int) -> float:
 
 def features(adj: pd.DataFrame, raw: pd.DataFrame, as_of: date, max_stale_days: int = 7) -> pd.DataFrame:
     """Per symbol: last_date, price, adv_usd (63-day median), mom_12_1, mom_6_1, ret_1y, vol_1y, max_dd_1y."""
-    adj = adj[adj["date"] <= as_of].sort_values(["symbol", "date"])
-    raw = raw[raw["date"] <= as_of].sort_values(["symbol", "date"])
+    adj = dedupe_bars(adj[adj["date"] <= as_of]).sort_values(["symbol", "date"])
+    raw = dedupe_bars(raw[raw["date"] <= as_of]).sort_values(["symbol", "date"])
     raw_by = {s: g for s, g in raw.groupby("symbol")}
     rows: list[dict[str, Any]] = []
     for sym, g in adj.groupby("symbol"):

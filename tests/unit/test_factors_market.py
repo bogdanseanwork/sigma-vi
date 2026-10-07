@@ -56,6 +56,24 @@ class MarketFeatureTests(unittest.TestCase):
         self.assertNotIn("AAA", market.features(self.adj, self.raw, later, max_stale_days=7).index)
 
 
+class DuplicateBarTests(unittest.TestCase):
+    def test_duplicate_symbol_days_are_collapsed_keeping_the_last(self):
+        df = pd.DataFrame({"symbol": ["A", "A", "A", "B"],
+                           "date": [date(2023, 1, 3), date(2023, 1, 3), date(2023, 1, 4), date(2023, 1, 3)],
+                           "close": [1.0, 2.0, 3.0, 4.0], "volume": 1})
+        out = market.dedupe_bars(df)
+        self.assertEqual(len(out), 3)
+        self.assertEqual(out[(out.symbol == "A") & (out.date == date(2023, 1, 3))]["close"].item(), 2.0)
+
+    def test_features_ignore_duplicated_history(self):
+        base = bars("AAA", list(100 * 1.001 ** np.arange(300)))
+        doubled = pd.concat([base, base], ignore_index=True)
+        a = market.features(base, base, base["date"].iloc[-1]).loc["AAA"]
+        b = market.features(market.dedupe_bars(doubled), market.dedupe_bars(doubled),
+                            base["date"].iloc[-1]).loc["AAA"]
+        self.assertAlmostEqual(a["mom_12_1"], b["mom_12_1"])
+
+
 class SectorTests(unittest.TestCase):
     def test_known_codes(self):
         cases = {3674: "Information Technology", 7372: "Information Technology", 2834: "Health Care",

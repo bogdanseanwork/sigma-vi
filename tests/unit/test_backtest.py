@@ -85,6 +85,17 @@ class ForwardReturnTests(unittest.TestCase):
         self.assertTrue(np.isnan(fr.loc[D("2023-03-31"), "NEW"]))
 
 
+class PriceMatrixTests(unittest.TestCase):
+    def test_duplicate_bars_do_not_break_the_matrix(self):
+        from sigma.backtest import run
+        px = pd.DataFrame({"symbol": ["A", "A", "A", "B"],
+                           "date": [D("2023-01-03"), D("2023-01-03"), D("2023-01-04"), D("2023-01-03")],
+                           "close": [1.0, 2.0, 3.0, 4.0]})
+        w = run.price_matrix(px)
+        self.assertEqual(w.loc["2023-01-03", "A"], 2.0)
+        self.assertEqual(w.shape, (2, 2))
+
+
 class PortfolioTests(unittest.TestCase):
     def panel(self):
         rows = []
