@@ -1,0 +1,75 @@
+# SIGMA VI model registry and role chains (spec §4, §5, §46).
+#
+# Application code asks for a ROLE; this file decides which models serve it and in what fallback
+# order. Model ids are LiteLLM ids ("<provider>/<model>").
+#
+# BEFORE PRODUCTION: verify every model id and price against each provider's current docs.
+# Prices are USD per million tokens. `price_verified = false` makes the cost ledger flag every
+# call to that model as "estimated with unverified price", and the AI Operations view shows it.
+
+[models.claude_top]
+id = "anthropic/claude-opus-5-5"
+provider = "anthropic"
+context_window = 200000
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+price_verified = false
+
+[models.claude_mid]
+id = "anthropic/claude-sonnet-5-5"
+provider = "anthropic"
+context_window = 200000
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+price_verified = false
+
+[models.claude_small]
+id = "anthropic/claude-haiku-4-5-20251001"
+provider = "anthropic"
+context_window = 200000
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+price_verified = false
+
+[models.openai_top]
+id = "openai/REPLACE-with-current-reasoning-model"
+provider = "openai"
+context_window = 200000
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+price_verified = false
+
+[models.openai_small]
+id = "openai/REPLACE-with-current-small-model"
+provider = "openai"
+context_window = 128000
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+price_verified = false
+
+[models.gemini_top]
+id = "gemini/REPLACE-with-current-pro-model"
+provider = "gemini"
+context_window = 1000000
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+price_verified = false
+
+[models.gemini_small]
+id = "gemini/REPLACE-with-current-flash-model"
+provider = "gemini"
+context_window = 1000000
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+price_verified = false
+
+# Ordered fallback chains. First healthy, in-budget model wins.
+[roles]
+FAST      = ["claude_small", "openai_small", "gemini_small"]
+DATA      = ["claude_mid", "openai_small", "gemini_top"]
+RESEARCH  = ["claude_mid", "openai_top", "gemini_top"]
+REASONING = ["claude_top", "openai_top", "gemini_top"]
+CRITIC    = ["openai_top", "claude_top", "gemini_top"]   # different family from the thesis author by default
+JUDGE     = ["claude_top", "openai_top", "gemini_top"]
+CODING    = ["claude_top", "openai_top"]
+FALLBACK  = ["claude_mid", "openai_small", "gemini_small"]

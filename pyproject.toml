@@ -63,13 +63,13 @@ pythonpath = ["src"]
 addopts = "-q"
 
 [tool.ruff]
-line-length = 100
+line-length = 110
 target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
-ignore = ["N803", "N806"]  # finance math uses capitalised symbols (FCF, EV, ...)
+ignore = ["N803", "N806", "N818"]  # finance symbols (FCF, EV) and descriptive exception names
 
 [tool.mypy]
 python_version = "3.12"
