@@ -143,10 +143,21 @@ def _probes(env: Mapping[str, str]) -> dict[str, Probe | None]:  # pragma: no co
         auth = {"APCA-API-KEY-ID": env["ALPACA_API_KEY_ID"],
                 "APCA-API-SECRET-KEY": env["ALPACA_API_SECRET_KEY"]}
         acct = _get_json("https://paper-api.alpaca.markets/v2/account", auth)  # paper endpoint, read-only
-        bars = _get_json("https://data.alpaca.markets/v2/stocks/bars?symbols=AAPL&timeframe=1Day"
-                         "&start=2016-01-04&end=2016-01-08&feed=iex&limit=5", auth)
-        n = len(bars.get("bars", {}).get("AAPL", []))
-        history = "price history reaches 2016" if n else "NO bars for Jan 2016 - history is shorter"
+        # Find the first year with daily bars on each free feed (one tiny request per year probed).
+        found = {}
+        for feed in ("sip", "iex"):
+            found[feed] = "none"
+            for year in range(2010, 2025):
+                try:
+                    bars = _get_json("https://data.alpaca.markets/v2/stocks/bars?symbols=AAPL&timeframe=1Day"
+                                     f"&start={year}-06-01&end={year}-06-10&feed={feed}&limit=3", auth)
+                except RuntimeError as e:
+                    found[feed] = f"not allowed ({str(e)[:40]})"
+                    break
+                if bars.get("bars", {}).get("AAPL"):
+                    found[feed] = str(year)
+                    break
+        history = f"daily history starts: sip={found['sip']}, iex={found['iex']}"
         return f"paper account {acct.get('status', '?')}; {history}"
 
     return {
