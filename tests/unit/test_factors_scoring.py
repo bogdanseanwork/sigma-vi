@@ -76,8 +76,33 @@ class DataQualityGuardTests(unittest.TestCase):
             self.assertFalse(math.isnan(f.loc[1, col]), col)
 
     def test_revenue_growth_is_logarithmic_so_tiny_bases_do_not_dominate(self):
-        f = S.compute_factors(pd.DataFrame([company(revenue=1000.0, revenue_1y=10.0)])).iloc[0]
-        self.assertAlmostEqual(f["rev_growth"], math.log(100))
+        f = S.compute_factors(pd.DataFrame([company(revenue=1000.0, revenue_1y=100.0)])).iloc[0]
+        self.assertAlmostEqual(f["rev_growth"], math.log(10))
+
+
+class PlausibilityTests(unittest.TestCase):
+    def test_values_outside_plausible_bounds_are_missing(self):
+        # trader with revenue ~ 46x its EV and a 107% free-cash-flow yield (working-capital swings)
+        f = S.compute_factors(pd.DataFrame([company(revenue=146_000.0, cfo=3400.0, capex=0.0)])).iloc[0]
+        self.assertTrue(math.isnan(f["sales_to_ev"]))
+        self.assertTrue(math.isnan(f["fcf_yield"]))
+
+    def test_ordinary_values_survive(self):
+        f = S.compute_factors(pd.DataFrame([company()])).iloc[0]
+        for col in S.PLAUSIBLE:
+            if col in f.index and not math.isnan(f[col]):
+                lo, hi = S.PLAUSIBLE[col]
+                self.assertTrue(lo <= f[col] <= hi, col)
+        self.assertFalse(math.isnan(f["fcf_yield"]))
+
+    def test_gross_margin_above_100_percent_is_a_tagging_error(self):
+        f = S.compute_factors(pd.DataFrame([company(gross_profit=1500.0)])).iloc[0]
+        self.assertTrue(math.isnan(f["gross_margin"]))
+
+    def test_bounds_cover_every_scored_ratio_that_can_explode(self):
+        for col in ("earnings_yield", "fcf_yield", "ebitda_to_ev", "sales_to_ev", "gross_margin",
+                    "op_margin", "roe", "roa", "roic", "fcf_margin"):
+            self.assertIn(col, S.PLAUSIBLE)
 
 
 class NormalisationTests(unittest.TestCase):

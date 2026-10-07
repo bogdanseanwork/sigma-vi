@@ -39,6 +39,14 @@ CATEGORIES: dict[str, list[str]] = {
 # Lenders' and insurers' operating cash flow mixes in loan and policy flows, so free-cash-flow and
 # accrual measures say little about them; they are scored on the other factors instead.
 NOT_FOR_FINANCIALS = ("fcf_yield", "fcf_margin", "fcf_growth", "cash_conversion", "accruals")
+# Ratios outside these ranges are filing/tagging artefacts or pass-through businesses (metal traders,
+# brokers), not information. They are treated as missing, which the coverage threshold then handles.
+PLAUSIBLE: dict[str, tuple[float, float]] = {
+    "earnings_yield": (-1.0, 0.6), "fcf_yield": (-1.0, 0.6), "ebitda_to_ev": (-1.0, 1.0),
+    "sales_to_ev": (0.0, 20.0), "gross_margin": (-1.0, 1.0), "op_margin": (-5.0, 1.0),
+    "roe": (-5.0, 5.0), "roa": (-2.0, 2.0), "roic": (-5.0, 5.0), "fcf_margin": (-5.0, 1.0),
+    "rev_growth": (-3.0, 4.0), "cash_conversion": (-20.0, 20.0),
+}
 MIN_EV_TO_MCAP = 0.1      # EV below 10% of market cap usually means debt was not tagged: skip EV ratios
 MIN_COVERAGE = 0.6        # share of available weight a company needs to be scored
 WORST_LEVERAGE = -10.0    # net debt with negative EBITDA: worse than any finite ratio
@@ -122,6 +130,8 @@ def compute_factors(df: pd.DataFrame) -> pd.DataFrame:
     out["low_volatility"] = -g("vol_1y")
     out["low_drawdown"] = -g("max_dd_1y")
     out["market_cap"] = mcap
+    for col, (lo, hi) in PLAUSIBLE.items():
+        out[col] = out[col].where(out[col].between(lo, hi))
     if "sector" in df:
         out.loc[df["sector"] == "Financials", list(NOT_FOR_FINANCIALS)] = np.nan
     return out.replace([np.inf, -np.inf], np.nan)
