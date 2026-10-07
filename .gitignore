@@ -1,0 +1,30 @@
+# secrets — never commit (spec §5)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# data / caches / artifacts
+data_cache/
+*.parquet
+*.duckdb
+sim_runs/
+
+# node
+node_modules/
+.next/
+
+# os
+.DS_Store
