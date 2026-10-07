@@ -173,7 +173,9 @@ class ModelRouter:
         if c.open_until and self._clock() < c.open_until:
             return True
         if c.open_until and self._clock() >= c.open_until:
-            c.open_until, c.failures = None, 0  # half-open: allow a probe
+            # Half-open: allow one probe. Its failure re-opens the circuit immediately.
+            c.open_until = None
+            c.failures = self.policy.breaker_failure_threshold - 1
         return False
 
     def _record_failure(self, provider: str, cooldown: timedelta | None = None) -> None:

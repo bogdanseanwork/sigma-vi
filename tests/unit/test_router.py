@@ -103,6 +103,32 @@ class RouterTests(unittest.TestCase):
         clock.now += timedelta(hours=1, seconds=1)
         self.assertEqual(self.run_task(router, task_id="t2").provider, "anthropic")
 
+    def test_failed_half_open_probe_reopens_circuit_immediately(self):
+        clock = Clock()
+        down = [ProviderUnavailable()] * 3
+        c = ScriptedClient({"a": [*down, ProviderUnavailable()], "o": ["x"] * 5})
+        router = make_router(c, clock=clock)
+        for i in range(3):  # three outages trip the breaker
+            self.run_task(router, task_id=f"t{i}")
+        self.assertTrue(router.provider_open("anthropic"))
+        clock.now += RouterPolicy().breaker_cooldown + timedelta(seconds=1)
+        self.run_task(router, task_id="probe")  # half-open probe to anthropic fails once
+        self.assertEqual(c.calls.count("a"), 4)
+        self.assertTrue(router.provider_open("anthropic"))  # one failed probe is enough to reopen
+
+    def test_daily_budget_ceiling_skips_models(self):
+        clock = Clock()
+        ledger = InMemoryLedger(clock)
+        from sigma.ai.ledger import LLMCallRecord
+        ledger.record(LLMCallRecord("old", "x", "specialist", "RESEARCH", "anthropic", "m", 0, 0, 0, 0,
+                                    est_cost_usd=24.9999, price_verified=True, success=True,
+                                    created_at=clock.now))
+        router = make_router(ScriptedClient({}), clock=clock, ledger=ledger,
+                             policy=RouterPolicy(daily_budget_usd=25.0))
+        with self.assertRaises(AllModelsFailed) as ctx:
+            self.run_task(router)
+        self.assertTrue(all("daily_cost_ceiling" in a["error_class"] for a in ctx.exception.attempts))
+
     def test_rate_limit_retries_then_succeeds(self):
         sleeps = []
         c = ScriptedClient({"a": [RateLimited(), RateLimited(retry_after_s=7), "ok"]})
