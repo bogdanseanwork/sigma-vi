@@ -4,6 +4,7 @@ import json
 import unittest
 from datetime import date
 from pathlib import Path
+from typing import ClassVar
 
 from sigma.data import alpaca, sec, universe
 from sigma.data.http import RateLimiter
@@ -167,7 +168,7 @@ if __name__ == "__main__":
 
 
 class MassiveTests(unittest.TestCase):
-    PAGES = [
+    PAGES: ClassVar[list] = [
         {"results": [
             {"ticker": "AABA", "name": "Altaba Inc. Common Stock", "type": "CS", "cik": "0001011006",
              "active": False, "delisted_utc": "2019-10-07T04:00:00Z"},

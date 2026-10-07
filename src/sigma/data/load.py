@@ -1,7 +1,7 @@
 """Load the whole-market dataset onto this machine.
 
     python -m sigma.data.load            # everything: universe, fundamentals, prices, report
-    python -m sigma.data.load prices     # one step: universe | links | fundamentals | prices | sectors | report
+    python -m sigma.data.load prices     # one step: universe | links | fundamentals | prices | sectors
 
 Resumable: finished pieces are skipped on the next run, so a sleep or crash never costs more than the
 piece in progress. Output goes to the data directory (see sigma.data.paths) and a plain-text coverage
