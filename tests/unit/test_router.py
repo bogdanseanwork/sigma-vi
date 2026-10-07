@@ -57,6 +57,9 @@ class Clock:
 
 MSG = [{"role": "user", "content": "analyse revenue quality"}]
 
+# Tests of the paid path opt out of the $0 defaults explicitly.
+PAID = {"free_only": False, "per_task_max_usd": 2.0, "daily_budget_usd": 25.0}
+
 
 def make_router(client, providers=("anthropic", "openai", "gemini"), **kw):
     clock = kw.pop("clock", Clock())
@@ -65,7 +68,7 @@ def make_router(client, providers=("anthropic", "openai", "gemini"), **kw):
         registry(), client, available_providers=set(providers),
         ledger=kw.pop("ledger", InMemoryLedger(clock)),
         checkpoints=kw.pop("checkpoints", InMemoryCheckpointStore()),
-        policy=kw.pop("policy", RouterPolicy()), clock=clock, sleep=sleeps.append,
+        policy=kw.pop("policy", RouterPolicy(**PAID)), clock=clock, sleep=sleeps.append,
     )
 
 
@@ -124,7 +127,7 @@ class RouterTests(unittest.TestCase):
                                     est_cost_usd=24.9999, price_verified=True, success=True,
                                     created_at=clock.now))
         router = make_router(ScriptedClient({}), clock=clock, ledger=ledger,
-                             policy=RouterPolicy(daily_budget_usd=25.0))
+                             policy=RouterPolicy(**PAID))
         with self.assertRaises(AllModelsFailed) as ctx:
             self.run_task(router)
         self.assertTrue(all("daily_cost_ceiling" in a["error_class"] for a in ctx.exception.attempts))
@@ -187,7 +190,7 @@ class RouterTests(unittest.TestCase):
             self.run_task(make_router(ScriptedClient({})), messages=big)
 
     def test_cost_ceilings(self):
-        pricey = RouterPolicy(per_task_max_usd=0.000001)
+        pricey = RouterPolicy(**{**PAID, "per_task_max_usd": 0.000001})
         with self.assertRaises(AllModelsFailed) as ctx:
             self.run_task(make_router(ScriptedClient({}), policy=pricey))
         self.assertTrue(all("per_task_cost_ceiling" in a["error_class"] for a in ctx.exception.attempts))
@@ -197,6 +200,63 @@ class RouterTests(unittest.TestCase):
             self.run_task(make_router(ScriptedClient({})), task_class=TaskClass.DETERMINISTIC)
 
 
+class FreeOnlyTests(unittest.TestCase):
+    def free_registry(self):
+        models = {
+            "paid": ModelSpec("paid", "anthropic/x", "anthropic", 200_000, 3.0, 15.0, True, free=False),
+            "unpriced": ModelSpec("unpriced", "openai/y", "openai", 200_000, 0.0, 0.0, False, free=False),
+            "gem": ModelSpec("gem", "gemini/z", "gemini", 1_000_000, 0.0, 0.0, True, free=True),
+        }
+        return ModelRegistry(models, {r: ["paid", "unpriced", "gem"] for r in Role})
+
+    def router(self, client, free_only=True):
+        return ModelRouter(self.free_registry(), client,
+                           available_providers={"anthropic", "openai", "gemini"},
+                           policy=RouterPolicy(**{**PAID, "free_only": free_only}), sleep=lambda s: None)
+
+    def run_task(self, router):
+        return router.run(task_id="t", agent="a", role=Role.RESEARCH, task_class=TaskClass.SPECIALIST,
+                          messages=MSG)
+
+    def test_free_only_skips_paid_and_unpriced_models(self):
+        c = ScriptedClient({"gem": ["ok"]})
+        r = self.run_task(self.router(c))
+        self.assertEqual(r.provider, "gemini")
+        self.assertEqual(c.calls, ["gem"])
+        self.assertEqual(r.cost_usd, 0.0)
+
+    def test_defaults_are_zero_cost(self):
+        p = RouterPolicy()
+        self.assertEqual((p.free_only, p.per_task_max_usd, p.daily_budget_usd), (True, 0.0, 0.0))
+
+    def test_free_models_run_under_zero_dollar_ceilings(self):
+        c = ScriptedClient({"gem": ["ok"]})
+        router = ModelRouter(self.free_registry(), c, available_providers={"gemini"}, sleep=lambda s: None)
+        self.assertEqual(self.run_task(router).provider, "gemini")
+
+    def test_free_only_with_no_free_model_parks_task_instead_of_spending(self):
+        reg = self.free_registry()
+        reg.chains = {r: ["paid", "unpriced"] for r in Role}
+        router = ModelRouter(reg, ScriptedClient({}), available_providers={"anthropic", "openai"},
+                             sleep=lambda s: None)
+        with self.assertRaises(AllModelsFailed) as ctx:
+            self.run_task(router)
+        self.assertEqual({a["error_class"] for a in ctx.exception.attempts}, {"skipped:not_free"})
+
+    def test_unverified_price_never_counts_as_free_when_paid_allowed(self):
+        c = ScriptedClient({"paid": ["ok"]})
+        router = self.router(c, free_only=False)
+        r = self.run_task(router)
+        self.assertEqual(r.provider, "anthropic")  # verified paid model is allowed when free_only is off
+        c2 = ScriptedClient({"gem": ["ok"]})
+        reg = self.free_registry()
+        reg.chains = {r: ["unpriced", "gem"] for r in Role}
+        router2 = ModelRouter(reg, c2, available_providers={"openai", "gemini"},
+                              policy=RouterPolicy(**PAID), sleep=lambda s: None)
+        self.assertEqual(self.run_task(router2).provider, "gemini")
+        self.assertNotIn("unpriced", c2.calls)
+
+
 class RegistryTests(unittest.TestCase):
     def test_default_config_loads_and_covers_all_roles(self):
         reg = ModelRegistry.from_toml()
@@ -204,6 +264,18 @@ class RegistryTests(unittest.TestCase):
             self.assertTrue(reg.chain(role))
         # Critic chain starts with a different provider family than the judge (cross-model diversity).
         self.assertNotEqual(reg.chain(Role.CRITIC)[0].provider, reg.chain(Role.JUDGE)[0].provider)
+
+    def test_default_config_is_zero_cost(self):
+        reg = ModelRegistry.from_toml()
+        for role in Role:
+            for spec_ in reg.chain(role):
+                self.assertTrue(spec_.free, f"{role}: {spec_.id} is not marked free")
+                self.assertEqual((spec_.input_per_mtok, spec_.output_per_mtok), (0.0, 0.0), spec_.id)
+
+    def test_default_config_has_a_local_fallback_for_every_role(self):
+        reg = ModelRegistry.from_toml()
+        for role in Role:
+            self.assertIn("ollama", {s.provider for s in reg.chain(role)}, role)
 
     def test_unknown_model_rejected(self):
         with self.assertRaises(ValueError):

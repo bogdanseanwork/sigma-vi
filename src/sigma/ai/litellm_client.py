@@ -7,6 +7,7 @@ never passed through SIGMA code. Install with ``pip install sigma-vi[ai]``.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from typing import Any
 
@@ -19,6 +20,7 @@ from sigma.ai.router import (
     QuotaExceeded,
     RateLimited,
 )
+from sigma.core.config import export_dotenv
 from sigma.core.security import redact
 
 _QUOTA_HINTS = ("quota", "billing", "insufficient", "usage limit", "credit")
@@ -31,14 +33,19 @@ class LiteLLMClient:
         except ImportError as e:  # pragma: no cover
             raise RuntimeError("litellm is not installed; pip install 'sigma-vi[ai]'") from e
         self._litellm = litellm
+        export_dotenv()  # make .env keys (e.g. GEMINI_API_KEY) visible to LiteLLM
 
     def complete(
         self, model: ModelSpec, messages: Sequence[Message], max_output_tokens: int, timeout_s: float
     ) -> Completion:  # pragma: no cover — exercised against live providers on the deployment host
         lt = self._litellm
+        extra: dict[str, Any] = {}
+        if model.provider == "ollama":
+            extra["api_base"] = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
         try:
             resp: Any = lt.completion(
                 model=model.id,
+                **extra,
                 messages=[dict(m) for m in messages],
                 max_tokens=max_output_tokens,
                 timeout=timeout_s,

@@ -54,5 +54,53 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(s.live_trading_enabled)
 
 
+class DotenvTests(unittest.TestCase):
+    def write(self, text):
+        import tempfile
+        from pathlib import Path
+        d = tempfile.mkdtemp()
+        p = Path(d) / ".env"
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def test_reads_values_comments_quotes_and_export(self):
+        from sigma.core.config import read_dotenv
+        p = self.write('# comment\nFRED_API_KEY=abc123\n\nexport EXA_API_KEY="q v"\nEMPTY=\nX=a#b\n')
+        expected = {"FRED_API_KEY": "abc123", "EXA_API_KEY": "q v", "EMPTY": "", "X": "a#b"}
+        self.assertEqual(read_dotenv(p), expected)
+
+    def test_missing_file_is_empty(self):
+        from pathlib import Path
+
+        from sigma.core.config import read_dotenv
+        self.assertEqual(read_dotenv(Path("/nonexistent/.env")), {})
+
+    def test_load_settings_reads_dotenv_and_environment_wins(self):
+        p = self.write("FRED_API_KEY=fromfile\nEXA_API_KEY=fromfile\n")
+        s = load_settings(dotenv_path=p, environ={"EXA_API_KEY": "fromenv"})
+        self.assertTrue(s.available(Integration.FRED))
+        self.assertTrue(s.available(Integration.EXA))
+
+    def test_template_placeholders_count_as_missing(self):
+        p = self.write('DATABASE_URL=postgresql://user:password@host/sigma_vi?sslmode=require\n'
+                       'SEC_EDGAR_USER_AGENT="SIGMA VI research you@example.com"\n')
+        s = load_settings(dotenv_path=p, environ={})
+        self.assertFalse(s.available(Integration.POSTGRES))
+        self.assertFalse(s.available(Integration.SEC_EDGAR))
+
+    def test_export_dotenv_fills_environment_without_overriding(self):
+        from sigma.core.config import export_dotenv
+        p = self.write("GEMINI_API_KEY=fromfile\nFRED_API_KEY=fromfile\nEMPTY=\n")
+        environ = {"FRED_API_KEY": "already-set"}
+        added = export_dotenv(p, environ)
+        self.assertEqual(environ, {"FRED_API_KEY": "already-set", "GEMINI_API_KEY": "fromfile"})
+        self.assertEqual(added, ["GEMINI_API_KEY"])  # names only, never values
+
+    def test_utf8_bom_tolerated(self):
+        from sigma.core.config import read_dotenv
+        p = self.write("﻿FRED_API_KEY=abc\n")
+        self.assertEqual(read_dotenv(p), {"FRED_API_KEY": "abc"})
+
+
 if __name__ == "__main__":
     unittest.main()

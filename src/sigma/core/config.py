@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 
 class Integration(StrEnum):
@@ -24,6 +25,7 @@ class Integration(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     GEMINI = "gemini"
+    OLLAMA = "ollama"
 
 
 # Every integration lists the env vars that must all be non-empty for it to be usable.
@@ -38,6 +40,7 @@ REQUIRED_ENV: dict[Integration, tuple[str, ...]] = {
     Integration.ANTHROPIC: ("ANTHROPIC_API_KEY",),
     Integration.OPENAI: ("OPENAI_API_KEY",),
     Integration.GEMINI: ("GEMINI_API_KEY",),
+    Integration.OLLAMA: ("OLLAMA_API_BASE",),  # local models; no key, just the address
 }
 
 
@@ -67,16 +70,72 @@ class Settings:
     def model_providers(self) -> list[str]:
         return [
             i.value
-            for i in (Integration.ANTHROPIC, Integration.OPENAI, Integration.GEMINI)
+            for i in (Integration.ANTHROPIC, Integration.OPENAI, Integration.GEMINI, Integration.OLLAMA)
             if self.available(i)
         ]
 
 
-def load_settings(env: Mapping[str, str] | None = None) -> Settings:
-    env = os.environ if env is None else env
+DEFAULT_DOTENV = Path(__file__).resolve().parents[3] / ".env"
+
+# Values copied verbatim from .env.example are not real credentials.
+_PLACEHOLDER_MARKERS = ("you@example.com", "user:password@host")
+
+
+def read_dotenv(path: Path) -> dict[str, str]:
+    """Minimal .env parser: KEY=VALUE lines, '#' comment lines, optional 'export ', optional quotes."""
+    if not path.is_file():
+        return {}
+    out: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, value = line.split("=", 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        out[key.strip()] = value
+    return out
+
+
+def export_dotenv(
+    path: Path | None = None, environ: MutableMapping[str, str] | None = None
+) -> list[str]:
+    """Copy non-empty .env values into the process environment (existing variables win).
+
+    Third-party clients such as LiteLLM read credentials from the environment, so this runs once at
+    startup. Returns the variable *names* added — never values.
+    """
+    target = os.environ if environ is None else environ
+    added = []
+    for key, value in read_dotenv(path or DEFAULT_DOTENV).items():
+        if value and key not in target:
+            target[key] = value
+            added.append(key)
+    return added
+
+
+def _is_set(value: str | None) -> bool:
+    v = (value or "").strip()
+    return bool(v) and not any(marker in v for marker in _PLACEHOLDER_MARKERS)
+
+
+def load_settings(
+    env: Mapping[str, str] | None = None,
+    *,
+    dotenv_path: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Settings:
+    """Settings from ``env`` if given; otherwise the project .env overlaid by the process environment."""
+    if env is None:
+        merged = read_dotenv(dotenv_path or DEFAULT_DOTENV)
+        merged.update(os.environ if environ is None else environ)
+        env = merged
     statuses: dict[Integration, IntegrationStatus] = {}
     for integration, names in REQUIRED_ENV.items():
-        missing = tuple(n for n in names if not (env.get(n) or "").strip())
+        missing = tuple(n for n in names if not _is_set(env.get(n)))
         statuses[integration] = IntegrationStatus(integration, not missing, missing)
 
     alpaca_paper = env.get("ALPACA_PAPER", "true").strip().lower() != "false"
@@ -88,8 +147,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         statuses=statuses,
         live_trading_enabled=live,
         alpaca_paper=alpaca_paper,
-        daily_llm_budget_usd=float(env.get("SIGMA_DAILY_LLM_BUDGET_USD", "25")),
-        per_task_max_usd=float(env.get("SIGMA_PER_TASK_MAX_USD", "2")),
+        daily_llm_budget_usd=float(env.get("SIGMA_DAILY_LLM_BUDGET_USD", "0")),
+        per_task_max_usd=float(env.get("SIGMA_PER_TASK_MAX_USD", "0")),
     )
 
 

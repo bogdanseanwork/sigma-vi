@@ -33,6 +33,7 @@ class ModelSpec:
     input_per_mtok: float
     output_per_mtok: float
     price_verified: bool
+    free: bool = False  # explicitly marked free in config (free tier or local); never inferred from price
 
     def cost_usd(self, input_tokens: int, output_tokens: int, cached_tokens: int = 0) -> float:
         # Cached input is billed differently by each provider; conservatively bill it as input.
@@ -64,6 +65,7 @@ class ModelRegistry:
                 input_per_mtok=float(m.get("input_per_mtok", 0.0)),
                 output_per_mtok=float(m.get("output_per_mtok", 0.0)),
                 price_verified=bool(m.get("price_verified", False)),
+                free=bool(m.get("free", False)),
             )
             for key, m in raw["models"].items()
         }

@@ -28,21 +28,32 @@ Three rules shape every decision below.
 3. **Every provider is replaceable.** Agents and engines depend on Python protocols in
    `sigma.providers.interfaces`, never on a vendor SDK.
 
-## 2. Integration inventory (as of 2026-10-07)
+## 2. Integration inventory and the $0 constraint (as of 2026-10-07)
 
-| Requested | Role | Status | Notes |
+**Operating constraint: SIGMA VI runs for $0.** The only money spent is on the stocks themselves.
+Every source below is free; limits were checked against each provider's own pricing page on
+2026-10-07 and must be re-checked when they change.
+
+| Source | Role | Free-tier limit (verified) | How SIGMA lives within it |
 |---|---|---|---|
-| Massive | prices, options, corporate actions, dividends | connector live | used for the reconciliation fixture; `MASSIVE_API_KEY` for the REST adapter |
-| Alpha Vantage | fundamentals, estimates, earnings, transcripts, insider, listing status incl. delisted | connector live | free key: ≤3 analytics metrics per call. **Conventions differ from ours** (see §4.4) |
-| SEC EDGAR | filings, XBRL company facts | public API, no connector needed | **primary source for all financial-statement numbers**; requires `SEC_EDGAR_USER_AGENT`, ≤10 req/s |
-| Exa | document discovery: IR releases, presentations, shareholder letters, KPIs, guidance | connector live | replaces Daloopa's document role (§4.5) |
-| FRED | macro series incl. ALFRED vintages | connector live | backtests use vintages, never revised series |
-| Neon / Postgres | durable store | **live**: project `sigma-vi` (`twilight-mountain-23433069`), db `sigma_vi`, aws-us-east-1, Postgres 17 | schema 0001 applied and verified (44 tables, 8 append-only triggers) |
-| GitHub | source control | **live**: `bogdanseanwork/sigma-vi` | one commit per milestone |
-| Alpaca | account, positions, paper orders | no connector in registry | direct REST adapter, paper endpoint only |
-| Daloopa | — | **dropped** (no account available) | role split between EDGAR XBRL (numbers) and Exa (documents) |
-| Context7, Superpowers | build-time tooling | in use | Context7 verified the LiteLLM exception mapping |
-| Serena | code navigation | not available | not needed at runtime |
+| SEC EDGAR | filings, XBRL financial statements | free, ≤10 req/s, contact email required | **primary source for all financial-statement numbers** |
+| FRED / ALFRED | macro series and vintages | free | backtests use vintages |
+| Alpaca market data | daily bars, 7+ years history | free plan: IEX feed, 200 calls/min | long price history for backtests (IEX-only volume is flagged) |
+| Massive | consolidated EOD prices, corporate actions, dividends | Basic: 5 calls/min, 2 years history, end-of-day; financials not included | recent consolidated closes + corporate actions, batched nightly |
+| Alpha Vantage | consensus estimates, earnings, transcripts, listing status | 25 requests/day | daily estimate snapshots for the watchlist only (~20 names/day, rotated) |
+| Exa | document discovery (IR releases, presentations, KPIs) | $10 credit/month, no card | ~1,000+ searches/month; documents only, numbers verified against EDGAR |
+| Gemini API | reasoning agents (thesis, judge) | free tier: Flash / Flash-Lite models, rate-limited; **free-tier prompts may be used by Google to improve products** | public-company research only; falls back to local models when quota is used |
+| Ollama (local) | critic, extraction, summaries, fallback for every role | unlimited, runs on the user's PC (32 GB RAM) | `gpt-oss:20b` (MoE, CPU-friendly) and `qwen3.5:4b` |
+| Neon Postgres | durable store | 1 GB/project, 100 CU-hours/month, scale-to-zero | daily bars and fundamentals fit; no tick/minute data stored |
+| Alpaca brokerage | paper trading, later live | paper free; commission-free stock trades | the only money that moves is the investment itself |
+| GitHub | source control | free | `bogdanseanwork/sigma-vi` |
+| Anthropic / OpenAI APIs | — | **not used** (paid per token) | router is `free_only` by default; tests fail if a non-free model enters any role chain |
+| Daloopa | — | dropped (no account) | EDGAR XBRL + Exa (§4.5) |
+
+Consequences of $0 that the design accepts openly: a focused watchlist (dozens of names, not the
+whole market), daily rather than real-time refresh, fewer LLM calls per stock (the full adversarial
+tournament runs only for buy candidates and challenged holdings), and slower research on local
+models when the Gemini quota is exhausted.
 
 Missing credentials are detected at boot by `sigma.core.config` (key *presence* only — values are
 never printed or logged). A provider without credentials is marked `unavailable` and skipped by

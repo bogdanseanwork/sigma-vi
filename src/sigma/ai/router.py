@@ -122,8 +122,11 @@ class RouterPolicy:
     breaker_cooldown: timedelta = timedelta(minutes=5)
     quota_cooldown: timedelta = timedelta(hours=1)
     timeout_s: float = 120.0
-    per_task_max_usd: float = 2.0
-    daily_budget_usd: float = 25.0
+    per_task_max_usd: float = 0.0
+    daily_budget_usd: float = 0.0
+    # $0 mode: only models marked free in config/models.toml may be called. On by default so a
+    # misconfigured paid model can never be billed by accident.
+    free_only: bool = True
 
 
 @dataclass(frozen=True)
@@ -307,6 +310,10 @@ class ModelRouter:
         return compressed
 
     def _skip_reason(self, spec: ModelSpec, est_in: int, max_out: int) -> str | None:
+        if self.policy.free_only and not spec.free:
+            return "not_free"
+        if not spec.free and not spec.price_verified:
+            return "unverified_price"  # an unknown price is never treated as free
         if spec.provider not in self.available_providers:
             return "no_credentials"
         if self.provider_open(spec.provider):

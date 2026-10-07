@@ -7,6 +7,10 @@ Agentic investment research, portfolio management, backtesting and paper-trading
 
 **Status:** Stage 1 (research only). See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+**Runs for $0.** Every data source and AI model is free (free tiers, government data, or local
+models via Ollama). The router refuses to call any model not marked free in `config/models.toml`.
+The only money spent is on the stocks themselves.
+
 ## What exists
 
 - **Design:** [`ARCHITECTURE`](docs/ARCHITECTURE.md) · [`VALIDATION`](docs/VALIDATION.md) ·
@@ -15,9 +19,15 @@ Agentic investment research, portfolio management, backtesting and paper-trading
 - **`sigma.finance`:** returns (incl. dividend-reinvested total returns), risk metrics, ratios,
   multiples, WACC, DCF, reverse DCF, scenario analysis, return decomposition
 - **`sigma.ai`:** model roles, token budgets, cost ledger, multi-provider router with checkpointed
-  failover (Anthropic / OpenAI / Gemini via LiteLLM)
+  failover (Gemini free tier and local Ollama models via LiteLLM; free-only by default)
 - **`sigma.providers`:** point-in-time data interfaces and source-authority ranking
 - **`sigma.core`:** credential discovery by presence only, secret redaction
+
+## Windows setup
+
+From this folder: `powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1`. It installs
+everything, runs the tests, creates `.env`, installs Ollama with the local models, and on later runs
+updates the code without touching your keys.
 
 ## Run the tests
 

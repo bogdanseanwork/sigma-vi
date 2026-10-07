@@ -1,6 +1,6 @@
 # SIGMA VI — Roadmap and Status
 
-Last updated 2026-10-07. Stage on the safety ladder: **Stage 1 — research only.** No strategy is
+Last updated 2026-10-07. **Constraint: everything runs for $0** (see ARCHITECTURE §2). Stage on the safety ladder: **Stage 1 — research only.** No strategy is
 VALIDATED; nothing trades, paper or live.
 
 ## Done
@@ -16,7 +16,8 @@ VALIDATED; nothing trades, paper or live.
 
 ## Next, in order
 
-1. **Phase 2 — data adapters** (EDGAR XBRL → `fundamentals`; Massive prices, dividends, splits;
+1. **Phase 2 — data adapters** (EDGAR XBRL → `fundamentals`; Alpaca free daily bars for history,
+   Massive EOD prices, dividends, splits;
    FRED/ALFRED; Alpha Vantage estimates; Exa document locator), each with recorded-fixture contract
    tests, plus the cache layer and repositories writing to Neon. **Start archiving daily estimate
    snapshots immediately**: point-in-time estimate history cannot be backfilled from the connected
@@ -34,19 +35,19 @@ VALIDATED; nothing trades, paper or live.
 
 ## Needs from you
 
-| Item | Why | Blocks |
+| Item | Cost | Blocks |
 |---|---|---|
-| Deployment host (your machine, or a small VM) with open internet | the build workspace can't reach vendor APIs or PyPI | running anything against live data |
-| API keys in that host's `.env`: Massive, Alpha Vantage, FRED, Exa, and at least two of Anthropic / OpenAI / Gemini | providers and multi-model failover | Phase 2, Phase 4 |
-| Verified model ids and prices in `config/models.toml` | OpenAI/Gemini entries are placeholders; prices are unset | cost accounting; those providers fall back until fixed |
-| Alpaca paper account keys | paper trading | Phase 11 only |
-| Your SEC contact email for `SEC_EDGAR_USER_AGENT` | SEC fair-access policy | EDGAR adapter |
+| Run `setup.ps1` on your PC (done once; re-run to update) | $0 | everything local |
+| Keys in `.env`: FRED, Alpha Vantage, Massive, Exa, Gemini; Neon connection string; your email for SEC | $0, no card | Phase 2, Phase 4 |
+| Alpaca paper account keys | $0 | Phase 11 only |
 
 ## Known limits (stated, not hidden)
 
 - Point-in-time analyst-estimate history isn't available from the connected providers. Revision-based
-  signals stay EXPERIMENTAL until the archive matures or a historical dataset is licensed.
+  signals stay EXPERIMENTAL until SIGMA's own daily archive matures (licensing history would cost money).
 - Historical index constituents aren't available; backtests use a liquidity-ranked universe built
   from point-in-time data instead.
+- Free-tier data limits the universe to a focused watchlist and daily refresh. Alpha Vantage's 25
+  requests/day caps estimate archiving at roughly 20 names per day.
 - The ≥1M-path simulation tests robustness and tail risk *given* an edge; it cannot create evidence
   of an edge. That comes only from out-of-sample walk-forward results and paper trading.

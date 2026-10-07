@@ -1,75 +1,65 @@
-# SIGMA VI model registry and role chains (spec §4, §5, §46).
+# SIGMA VI model registry and role chains — $0 configuration.
 #
 # Application code asks for a ROLE; this file decides which models serve it and in what fallback
 # order. Model ids are LiteLLM ids ("<provider>/<model>").
 #
-# BEFORE PRODUCTION: verify every model id and price against each provider's current docs.
-# Prices are USD per million tokens. `price_verified = false` makes the cost ledger flag every
-# call to that model as "estimated with unverified price", and the AI Operations view shows it.
+# Every model here costs nothing:
+#   * gemini/*  — Google Gemini API free tier (verified on ai.google.dev/gemini-api/docs/pricing,
+#                 2026-10-07). Rate-limited; on the free tier Google may use prompts to improve its
+#                 products, so only public-company research goes here, never personal data.
+#   * ollama_chat/* — open-weight models running locally through Ollama. Unlimited, private.
+#
+# The router runs with free_only=true by default: a model without `free = true` is never called,
+# and tests/unit/test_router.py fails if a non-free model is added to any role chain. To add a paid
+# provider later, add it with verified prices and run the router with free_only=false deliberately.
 
-[models.claude_top]
-id = "anthropic/claude-opus-5-5"
-provider = "anthropic"
-context_window = 200000
+[models.gemini_flash]
+id = "gemini/gemini-3.8-flash"
+provider = "gemini"
+context_window = 1000000
 input_per_mtok = 0.0
 output_per_mtok = 0.0
-price_verified = false
+price_verified = true
+free = true
 
-[models.claude_mid]
-id = "anthropic/claude-sonnet-5-5"
-provider = "anthropic"
-context_window = 200000
+[models.gemini_lite]
+id = "gemini/gemini-3.5-flash-lite"
+provider = "gemini"
+context_window = 1000000
 input_per_mtok = 0.0
 output_per_mtok = 0.0
-price_verified = false
+price_verified = true
+free = true
 
-[models.claude_small]
-id = "anthropic/claude-haiku-4-5-20251001"
-provider = "anthropic"
-context_window = 200000
-input_per_mtok = 0.0
-output_per_mtok = 0.0
-price_verified = false
-
-[models.openai_top]
-id = "openai/REPLACE-with-current-reasoning-model"
-provider = "openai"
-context_window = 200000
-input_per_mtok = 0.0
-output_per_mtok = 0.0
-price_verified = false
-
-[models.openai_small]
-id = "openai/REPLACE-with-current-small-model"
-provider = "openai"
+# Local reasoning model: OpenAI's open-weight gpt-oss 20B (14 GB download, 128K context). It's a
+# mixture-of-experts model, so it runs at usable speed on a CPU with 32 GB RAM.
+[models.local_reasoning]
+id = "ollama_chat/gpt-oss:20b"
+provider = "ollama"
 context_window = 128000
 input_per_mtok = 0.0
 output_per_mtok = 0.0
-price_verified = false
+price_verified = true
+free = true
 
-[models.gemini_top]
-id = "gemini/REPLACE-with-current-pro-model"
-provider = "gemini"
-context_window = 1000000
+# Local fast model for extraction, classification and summaries (about 3-4 GB).
+[models.local_fast]
+id = "ollama_chat/qwen3.5:4b"
+provider = "ollama"
+context_window = 256000
 input_per_mtok = 0.0
 output_per_mtok = 0.0
-price_verified = false
+price_verified = true
+free = true
 
-[models.gemini_small]
-id = "gemini/REPLACE-with-current-flash-model"
-provider = "gemini"
-context_window = 1000000
-input_per_mtok = 0.0
-output_per_mtok = 0.0
-price_verified = false
-
-# Ordered fallback chains. First healthy, in-budget model wins.
+# Ordered fallback chains. First healthy model wins. Every role ends on a local model, so research
+# continues (more slowly) when Gemini's free-tier quota is used up.
 [roles]
-FAST      = ["claude_small", "openai_small", "gemini_small"]
-DATA      = ["claude_mid", "openai_small", "gemini_top"]
-RESEARCH  = ["claude_mid", "openai_top", "gemini_top"]
-REASONING = ["claude_top", "openai_top", "gemini_top"]
-CRITIC    = ["openai_top", "claude_top", "gemini_top"]   # different family from the thesis author by default
-JUDGE     = ["claude_top", "openai_top", "gemini_top"]
-CODING    = ["claude_top", "openai_top"]
-FALLBACK  = ["claude_mid", "openai_small", "gemini_small"]
+FAST      = ["local_fast", "gemini_lite", "local_reasoning"]
+DATA      = ["gemini_lite", "local_reasoning"]
+RESEARCH  = ["gemini_flash", "local_reasoning"]
+REASONING = ["gemini_flash", "local_reasoning"]
+CRITIC    = ["local_reasoning", "gemini_flash"]   # different model family from the judge and thesis author
+JUDGE     = ["gemini_flash", "local_reasoning"]
+CODING    = ["gemini_flash", "local_reasoning"]
+FALLBACK  = ["local_reasoning", "local_fast"]
