@@ -26,7 +26,7 @@ class FactorTests(unittest.TestCase):
         self.f = S.compute_factors(pd.DataFrame([company()])).iloc[0]
 
     def test_growth(self):
-        self.assertAlmostEqual(self.f["rev_growth"], 0.25)
+        self.assertAlmostEqual(self.f["rev_growth"], math.log(1.25))
         self.assertAlmostEqual(self.f["rev_cagr_3y"], 2 ** (1 / 3) - 1)
         self.assertAlmostEqual(self.f["op_income_growth"], 50 / 150)
 
@@ -54,6 +54,30 @@ class FactorTests(unittest.TestCase):
     def test_negative_ebitda_with_debt_is_penalised_not_skipped(self):
         f = S.compute_factors(pd.DataFrame([company(operating_income=-100.0, dna=10.0)])).iloc[0]
         self.assertEqual(f["net_debt_to_ebitda"], S.WORST_LEVERAGE)
+
+
+class DataQualityGuardTests(unittest.TestCase):
+    def test_ev_multiples_skipped_when_enterprise_value_is_implausibly_small(self):
+        # debt not tagged + big cash pile -> EV near zero -> sales/EV explodes (DXC: 1,252x)
+        f = S.compute_factors(pd.DataFrame([company(cash=2950.0, debt_current=None, debt_noncurrent=None)])).iloc[0]
+        self.assertTrue(math.isnan(f["sales_to_ev"]))
+        self.assertTrue(math.isnan(f["ebitda_to_ev"]))
+        self.assertFalse(math.isnan(f["earnings_yield"]))  # price-based yields are still fine
+
+    def test_combined_debt_column_is_used_when_present(self):
+        f = S.compute_factors(pd.DataFrame([company(debt=900.0)])).iloc[0]
+        self.assertAlmostEqual(f["net_debt_to_ebitda"], -(600 / 250))
+
+    def test_cash_flow_factors_not_applied_to_financials(self):
+        df = pd.DataFrame([company() | {"sector": "Financials"}, company() | {"sector": "Industrials"}])
+        f = S.compute_factors(df)
+        for col in S.NOT_FOR_FINANCIALS:
+            self.assertTrue(math.isnan(f.loc[0, col]), col)
+            self.assertFalse(math.isnan(f.loc[1, col]), col)
+
+    def test_revenue_growth_is_logarithmic_so_tiny_bases_do_not_dominate(self):
+        f = S.compute_factors(pd.DataFrame([company(revenue=1000.0, revenue_1y=10.0)])).iloc[0]
+        self.assertAlmostEqual(f["rev_growth"], math.log(100))
 
 
 class NormalisationTests(unittest.TestCase):

@@ -16,6 +16,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+PARSER_VERSION = 2  # bump when METRICS changes: the loader rebuilds fundamentals from the same file
 PERIODIC_FORMS = frozenset({"10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-QT", "20-F", "20-F/A", "40-F"})
 
 # metric -> ordered list of (taxonomy, tag, unit). Earlier tags win when a company reports several.
@@ -72,9 +73,17 @@ METRICS: dict[str, list[tuple[str, str, str]]] = {
     "current_liabilities": [("us-gaap", "LiabilitiesCurrent", "USD")],
     "total_liabilities": [("us-gaap", "Liabilities", "USD")],
     "debt_current": [("us-gaap", "LongTermDebtCurrent", "USD"),
-                     ("us-gaap", "DebtCurrent", "USD")],
+                     ("us-gaap", "DebtCurrent", "USD"),
+                     ("us-gaap", "LongTermDebtAndCapitalLeaseObligationsCurrent", "USD")],
     "debt_noncurrent": [("us-gaap", "LongTermDebtNoncurrent", "USD"),
-                        ("us-gaap", "LongTermDebt", "USD")],
+                        ("us-gaap", "LongTermDebtAndCapitalLeaseObligations", "USD"),
+                        ("us-gaap", "LongTermDebt", "USD"),
+                        ("us-gaap", "LongTermNotesPayable", "USD"),
+                        ("us-gaap", "SeniorLongTermNotes", "USD")],
+    "short_term_borrowings": [("us-gaap", "ShortTermBorrowings", "USD"),
+                              ("us-gaap", "CommercialPaper", "USD")],
+    "debt_total": [("us-gaap", "DebtLongtermAndShorttermCombinedAmount", "USD"),
+                   ("us-gaap", "DebtInstrumentCarryingAmount", "USD")],
     "deferred_revenue": [("us-gaap", "ContractWithCustomerLiabilityCurrent", "USD"),
                          ("us-gaap", "DeferredRevenueCurrent", "USD")],
     "equity": [("us-gaap", "StockholdersEquity", "USD"),

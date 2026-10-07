@@ -92,6 +92,13 @@ class LoaderTests(unittest.TestCase):
         self.assertGreater(first, 0)
         self.assertEqual(load.step_fundamentals(self.store, {}, self.log.append), 0)
         self.assertTrue(any("already built" in line for line in self.log))
+        from sigma.data import sec
+        old = sec.PARSER_VERSION
+        try:  # a parser change (new tags) rebuilds from the same file
+            sec.PARSER_VERSION = old + 1
+            self.assertGreater(load.step_fundamentals(self.store, {}, self.log.append), 0)
+        finally:
+            sec.PARSER_VERSION = old
 
     def test_sectors_fetch_sic_once_per_company(self):
         load.step_universe(self.store, self.clients, self.log.append)

@@ -12,6 +12,7 @@ to beat or discard; it is not a recommendation.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -24,6 +25,33 @@ from sigma.factors import fundamentals, market, scoring
 from sigma.factors.scoring import CATEGORIES, NOT_SCORED, effective_weights
 
 Funnel = list[tuple[str, int]]
+
+_NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+        "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+        "twenty": 20, "twenty-five": 25, "thirty": 30, "forty": 40, "fifty": 50, "hundred": 100}
+_FRAC = {"half": 2, "third": 3, "fourth": 4, "quarter": 4, "fifth": 5, "tenth": 10}
+_RATIO = re.compile(r"each\s+represent(?:s|ing)\s+(?:an?\s+)?([a-z\-]+|\d+(?:\.\d+)?)(?:\s*\((\d+)\))?", re.I)
+
+
+def adr_ratio(name: str) -> float | None:
+    """Underlying shares per listed share: 1 for ordinary listings, the stated ratio for ADRs.
+
+    SEC share counts are in underlying (ordinary) shares while the ADR trades per depositary share,
+    so market cap = price x shares / ratio. ``None`` when an ADR's listing name does not state it.
+    """
+    if not re.search(r"depositary|\bADS\b|\bADRs?\b", name, re.I):
+        return 1.0
+    m = _RATIO.search(name)
+    if not m:
+        return None
+    if m.group(2):
+        return float(m.group(2))
+    word = m.group(1).lower()
+    if word.replace(".", "").isdigit():
+        return float(word)
+    if word.startswith("one-") and word[4:] in _FRAC:
+        return 1.0 / _FRAC[word[4:]]
+    return float(_NUM[word]) if word in _NUM else None
 
 
 @dataclass(frozen=True)
@@ -54,7 +82,12 @@ def build_screen(fund: pd.DataFrame, mkt: pd.DataFrame, uni: pd.DataFrame, secto
     df["sector"] = df["sector"].fillna("Unknown")
     df = df[df["sector"] != "Shell"]
     funnel.append(("not a shell / SPAC", len(df)))
-    df = df.assign(market_cap=pd.to_numeric(df["price"]) * pd.to_numeric(df["shares"], errors="coerce"))
+    df = df.assign(adr_ratio=df["name"].fillna("").map(adr_ratio))
+    df = df[df["adr_ratio"].notna()]
+    funnel.append(("ADR share ratio known (or not an ADR)", len(df)))
+    # SEC counts underlying shares; express them per listed share so price x shares = market cap
+    df = df.assign(shares=pd.to_numeric(df["shares"], errors="coerce") / df["adr_ratio"])
+    df = df.assign(market_cap=pd.to_numeric(df["price"]) * df["shares"])
     df = df[df["market_cap"] >= f.min_market_cap]
     funnel.append((f"market cap >= ${f.min_market_cap / 1e6:,.0f}M", len(df)))
     df = df[df["adv_usd"] >= f.min_adv_usd]
@@ -108,13 +141,20 @@ def report(ranked: pd.DataFrame, funnel: Funnel, as_of: date, f: Filters, top: i
             f"{r['rank']:>4} {r['symbol']:<7} {str(r['name'])[:28]:<28} {str(r['sector'])[:22]:<22} "
             f"{r['market_cap'] / 1e9:>8.1f} {r['sigma_score']:>6.1f} "
             + " ".join(f"{r[f'cat_{c}']:>6.2f}" if pd.notna(r[f"cat_{c}"]) else f"{'-':>6}" for c in cats))
+    flags = ranked["shares_rescaled"] if "shares_rescaled" in ranked else pd.Series(dtype=bool)
+    rescaled = int(flags.fillna(False).astype(bool).sum())
     lines += [
         "",
         "Known limitations of this provisional screen",
         "  * Sectors are approximated from SEC SIC codes (GICS is not free).",
         "  * Market cap = price x latest diluted share count; multi-class companies are approximate.",
         "  * Foreign filers reporting under IFRS (20-F) are not yet covered by the fundamentals parser.",
-        "  * Banks and insurers lack some factors (gross margin, EBITDA); they are scored on what applies.",
+        "  * Banks and insurers lack some factors (gross margin, EBITDA) and are not scored on free cash",
+        "    flow or accruals (their cash flows mix in loans and policies); they are scored on the rest.",
+        "  * ADRs are converted to per-depositary-share counts using the ratio in the listing name; ADRs",
+        "    whose name does not state the ratio are set aside until a free ratio source is added.",
+        f"  * Share counts corrected for 1000x units errors in the filings: {rescaled}.",
+        "  * Revenue uses the largest revenue figure a company tags for a period (some tag only a part).",
         "  * Delisted companies are not yet linked to their SEC filings: fine for today's list, but the",
         "    backtests need that link before their results can be trusted.",
     ]
@@ -165,8 +205,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — read
     ciks = sorted({int(c) for c in uni.loc[uni["kind"] == "common", "cik"].dropna()})
     window = as_of - timedelta(days=int(4.6 * 365))  # 3-year growth needs ~4 years of periods
     facts = store.read("fundamentals",
-                       columns=["cik", "metric", "tag_rank", "start", "end", "period", "value", "filed",
-                                "known_at"],
+                       columns=["cik", "metric", "tag", "tag_rank", "start", "end", "period", "value",
+                                "filed", "known_at"],
                        filters=[("known_at", "<=", as_of), ("end", ">=", window), ("cik", "in", ciks)])
     facts = _dates(facts, "start", "end", "filed", "known_at")
     _log(f"  {len(facts):,} facts; building trailing-twelve-month figures...")

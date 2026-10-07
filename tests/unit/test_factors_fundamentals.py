@@ -13,7 +13,7 @@ D = date.fromisoformat
 def fact(metric, start, end, value, filed, cik=1, tag_rank=0):
     s = D(start) if start else None
     e, f = D(end), D(filed)
-    return {"cik": cik, "metric": metric, "tag": "T", "tag_rank": tag_rank, "unit": "USD",
+    return {"cik": cik, "metric": metric, "tag": f"T{tag_rank}", "tag_rank": tag_rank, "unit": "USD",
             "start": s, "end": e, "period": F.sec.classify_period(s, e), "value": float(value),
             "form": "10-Q", "filed": f, "known_at": f + timedelta(days=1)}
 
@@ -131,3 +131,65 @@ class SnapshotTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DataGlitchTests(unittest.TestCase):
+    def test_revenue_uses_the_largest_tag_so_partial_tags_never_win(self):
+        # Insurers/REITs tag only their contract revenue with the ASC 606 tag; total is under Revenues.
+        rows = pd.DataFrame([fact("revenue", "2023-01-01", "2023-12-31", 100, "2024-02-20", tag_rank=0),
+                             fact("revenue", "2023-01-01", "2023-12-31", 900, "2024-02-20", tag_rank=1)])
+        self.assertEqual(F.point_in_time(rows, D("2024-06-01"))["value"].tolist(), [900])
+
+    def test_other_metrics_keep_tag_precedence(self):
+        rows = pd.DataFrame([fact("cfo", "2023-01-01", "2023-12-31", 100, "2024-02-20", tag_rank=0),
+                             fact("cfo", "2023-01-01", "2023-12-31", 900, "2024-02-20", tag_rank=1)])
+        self.assertEqual(F.point_in_time(rows, D("2024-06-01"))["value"].tolist(), [100])
+
+    def shares_rows(self, latest, cover=None):
+        rows = [fact("revenue", "2026-01-01", "2026-06-30", 10, "2026-08-05"),
+                fact("shares_diluted", "2026-04-01", "2026-06-30", latest, "2026-08-05"),
+                fact("shares_diluted", "2025-10-01", "2025-12-31", 59_763_000, "2026-02-23"),
+                fact("shares_diluted", "2025-07-01", "2025-09-30", 59_622_000, "2025-11-04")]
+        if cover:
+            rows.append(fact("shares_outstanding", None, "2026-08-01", cover, "2026-08-05"))
+        return pd.DataFrame(rows)
+
+    def test_share_count_filed_1000x_too_large_is_rescaled(self):
+        # Waters' Q2 2026 10-Q tagged 98,204,000,000 diluted shares (true: 98.2 million).
+        snap = F.snapshot(self.shares_rows(98_204_000_000), D("2026-09-01"))
+        self.assertEqual(snap.loc[1, "shares"], 98_204_000)
+        self.assertTrue(snap.loc[1, "shares_rescaled"])
+
+    def test_cover_page_count_is_the_reference_when_available(self):
+        # every recent quarter mis-scaled (Taboola restated its comparatives the same way)
+        rows = self.shares_rows(291_392_907_000, cover=289_000_000)
+        rows.loc[rows["metric"] == "shares_diluted", "value"] *= 1000
+        rows.loc[1, "value"] = 291_392_907_000
+        snap = F.snapshot(rows, D("2026-09-01"))
+        self.assertEqual(snap.loc[1, "shares"], 291_392_907)
+
+    def test_genuine_share_changes_are_left_alone(self):
+        snap = F.snapshot(self.shares_rows(120_000_000), D("2026-09-01"))  # doubled: real dilution
+        self.assertEqual(snap.loc[1, "shares"], 120_000_000)
+        self.assertFalse(snap.loc[1, "shares_rescaled"])
+
+    def test_debt_falls_back_to_the_combined_total(self):
+        # DebtLongtermAndShorttermCombinedAmount already includes short-term borrowings
+        rows = pd.DataFrame([
+            fact("revenue", "2026-01-01", "2026-06-30", 10, "2026-08-05"),
+            fact("short_term_borrowings", None, "2026-06-30", 50, "2026-08-05"),
+            fact("debt_total", None, "2026-06-30", 700, "2026-08-05")])
+        self.assertEqual(F.snapshot(rows, D("2026-09-01")).loc[1, "debt"], 700)
+
+    def test_debt_prefers_the_split_plus_short_term_borrowings(self):
+        rows = pd.DataFrame([
+            fact("revenue", "2026-01-01", "2026-06-30", 10, "2026-08-05"),
+            fact("debt_current", None, "2026-06-30", 100, "2026-08-05"),
+            fact("debt_noncurrent", None, "2026-06-30", 400, "2026-08-05"),
+            fact("short_term_borrowings", None, "2026-06-30", 50, "2026-08-05"),
+            fact("debt_total", None, "2026-06-30", 999, "2026-08-05")])
+        self.assertEqual(F.snapshot(rows, D("2026-09-01")).loc[1, "debt"], 550)
+
+    def test_no_debt_tags_means_unknown_not_zero(self):
+        rows = pd.DataFrame([fact("revenue", "2026-01-01", "2026-06-30", 10, "2026-08-05")])
+        self.assertTrue(pd.isna(F.snapshot(rows, D("2026-09-01")).loc[1, "debt"]))

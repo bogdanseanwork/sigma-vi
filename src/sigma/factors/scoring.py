@@ -36,6 +36,10 @@ CATEGORIES: dict[str, list[str]] = {
     "Financial Health": ["net_debt_to_ebitda", "interest_coverage", "current_ratio"],
     "Risk": ["low_volatility", "low_drawdown"],
 }
+# Lenders' and insurers' operating cash flow mixes in loan and policy flows, so free-cash-flow and
+# accrual measures say little about them; they are scored on the other factors instead.
+NOT_FOR_FINANCIALS = ("fcf_yield", "fcf_margin", "fcf_growth", "cash_conversion", "accruals")
+MIN_EV_TO_MCAP = 0.1      # EV below 10% of market cap usually means debt was not tagged: skip EV ratios
 MIN_COVERAGE = 0.6        # share of available weight a company needs to be scored
 WORST_LEVERAGE = -10.0    # net debt with negative EBITDA: worse than any finite ratio
 MAX_COVERAGE_RATIO = 50.0
@@ -71,9 +75,11 @@ def compute_factors(df: pd.DataFrame) -> pd.DataFrame:
     oi, oi1, ni, ni1 = g("operating_income"), g("operating_income_1y"), g("net_income"), g("net_income_1y")
     fcf, fcf1 = g("cfo") - z0("capex"), g("cfo_1y") - g("capex_1y").fillna(0.0)
     mcap = g("price") * g("shares")
-    debt = z0("debt_current") + z0("debt_noncurrent")
+    debt = g("debt").fillna(z0("debt_current") + z0("debt_noncurrent")) if "debt" in df else \
+        z0("debt_current") + z0("debt_noncurrent")
+    debt = debt.fillna(0.0)
     net_debt = debt - z0("cash") - z0("short_term_investments")
-    ev = mcap + net_debt
+    ev = (mcap + net_debt).where(mcap + net_debt >= MIN_EV_TO_MCAP * mcap)
     ebitda = oi + z0("dna")
     gross = g("gross_profit").fillna(rev - g("cost_of_revenue"))
     avg_eq = pd.concat([g("equity"), g("equity_1y").fillna(g("equity"))], axis=1).mean(axis=1)
@@ -88,7 +94,7 @@ def compute_factors(df: pd.DataFrame) -> pd.DataFrame:
     coverage = coverage.mask(((interest.isna()) | (interest == 0)) & (oi > 0), MAX_COVERAGE_RATIO)
 
     out = pd.DataFrame(index=df.index)
-    out["rev_growth"] = _div(rev, rev1) - 1
+    out["rev_growth"] = np.log(_div(rev, rev1).where(rev > 0))  # log: a tiny base can't dominate
     out["rev_cagr_3y"] = (_div(rev, rev3) ** (1 / 3) - 1).where(rev > 0)
     out["op_income_growth"] = _rel_change(oi, oi1)
     out["net_income_growth"] = _rel_change(ni, ni1)
@@ -116,6 +122,8 @@ def compute_factors(df: pd.DataFrame) -> pd.DataFrame:
     out["low_volatility"] = -g("vol_1y")
     out["low_drawdown"] = -g("max_dd_1y")
     out["market_cap"] = mcap
+    if "sector" in df:
+        out.loc[df["sector"] == "Financials", list(NOT_FOR_FINANCIALS)] = np.nan
     return out.replace([np.inf, -np.inf], np.nan)
 
 

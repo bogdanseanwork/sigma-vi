@@ -65,6 +65,28 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("S03B", set(ranked["symbol"]))
         self.assertNotIn("S03", set(ranked["symbol"]))
 
+    def test_adr_share_ratio_from_the_listing_name(self):
+        self.uni.loc[5, "name"] = "Big Co American Depositary Shares, each represents eight Ordinary Shares"
+        self.f = screen.Filters(min_market_cap=0, min_adv_usd=1e6, min_price=2.0, stage1=10, stage2=5)
+        ranked, _ = self.run_screen()
+        row = ranked.set_index("symbol").loc["S05"]
+        self.assertAlmostEqual(row["market_cap"], 30.0 * 100.0 / 8)
+
+    def test_adr_without_a_stated_ratio_is_set_aside(self):
+        self.uni.loc[5, "name"] = "BeOne Medicines Ltd. American Depositary Shares"
+        ranked, funnel = self.run_screen()
+        self.assertNotIn("S05", set(ranked["symbol"]))
+        self.assertIn("ADR share ratio known (or not an ADR)", dict(funnel))
+
+    def test_adr_ratio_parsing(self):
+        cases = {"ADS, each representing ten (10) Common Shares": 10.0,
+                 "American Depositary Shares, each represents eight Ordinary Shares": 8.0,
+                 "American Depositary Shares, each representing one-half of one Ordinary Share": 0.5,
+                 "Arm Holdings plc American Depositary Shares": None,
+                 "Apple Inc. Common Stock": 1.0}
+        for name, want in cases.items():
+            self.assertEqual(screen.adr_ratio(name), want, name)
+
     def test_non_common_excluded(self):
         self.uni.loc[0, "kind"] = "etf"
         ranked, _ = self.run_screen()

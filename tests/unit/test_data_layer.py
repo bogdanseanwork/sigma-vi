@@ -88,6 +88,13 @@ class SecParsingTests(unittest.TestCase):
         self.assertEqual(len(q1), 1)
         self.assertEqual(q1[0]["value"], 88293000000.0)
 
+    def test_debt_tags_cover_common_alternatives(self):
+        tags = {m: [t for _, t, _ in c] for m, c in sec.METRICS.items()}
+        self.assertIn("LongTermDebtAndCapitalLeaseObligations", tags["debt_noncurrent"])
+        self.assertIn("ShortTermBorrowings", tags["short_term_borrowings"])
+        self.assertIn("DebtLongtermAndShorttermCombinedAmount", tags["debt_total"])
+        self.assertGreaterEqual(sec.PARSER_VERSION, 2)
+
     def test_tickers_file(self):
         t = sec.parse_company_tickers(load("sec/company_tickers_exchange.json"))
         self.assertEqual(t["AAPL"], {"cik": 320193, "name": "Apple Inc.", "exchange": "Nasdaq"})

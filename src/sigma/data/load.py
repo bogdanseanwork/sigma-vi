@@ -86,7 +86,7 @@ def step_fundamentals(store: ParquetStore, clients: Mapping[str, HttpClient], lo
         clients["sec"].download("/Archives/edgar/daily-index/xbrl/companyfacts.zip", zpath, progress)
     out_dir = store.path("fundamentals")
     done_marker = out_dir / "_built_from.txt"
-    stamp = f"{zpath.stat().st_size}:{int(zpath.stat().st_mtime)}"
+    stamp = f"{zpath.stat().st_size}:{int(zpath.stat().st_mtime)}:parser{sec.PARSER_VERSION}"
     if done_marker.exists() and done_marker.read_text().strip() == stamp:
         log("  fundamentals already built from this file - skipping.")
         return 0
