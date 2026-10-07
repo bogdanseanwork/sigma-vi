@@ -110,5 +110,9 @@ $status = & .\.venv\Scripts\python.exe -m sigma.core.config
 $status
 $status | Out-File -FilePath setup-status.txt -Encoding utf8
 
-Write-Host "`nDone. After filling in .env, run this again to re-check, then tell Claude 'keys are in'." -ForegroundColor Green
+# 8. Live connection check (one small free call per service; never prints key values)
+Step "Checking that each key actually works"
+& .\.venv\Scripts\python.exe -m sigma.core.healthcheck
+
+Write-Host "`nDone. Results are saved in healthcheck.txt and setup-status.txt - tell Claude when this finishes." -ForegroundColor Green
 Read-Host "Press Enter to close"

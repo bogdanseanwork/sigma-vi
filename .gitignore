@@ -28,3 +28,7 @@ node_modules/
 
 # os
 .DS_Store
+
+# local status outputs
+healthcheck.txt
+setup-status.txt
