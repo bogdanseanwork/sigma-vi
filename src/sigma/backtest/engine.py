@@ -30,9 +30,10 @@ def rebalance_dates(trading_days: Sequence[date], start: date, end: date, freq: 
     return out
 
 
-def forward_returns(prices: pd.DataFrame, dates: Sequence[date], with_flags: bool = False
+def forward_returns(prices: pd.DataFrame, dates: Sequence[date], with_flags: bool = False, step: int = 1
                     ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
-    """Return from each rebalance date to the next, per symbol (rows: date, columns: symbol).
+    """Return from each rebalance date to the one ``step`` later (default: the next), per symbol
+    (rows: date, columns: symbol). ``step=4`` on quarterly dates gives 12-month returns.
 
     ``prices``: adjusted closes (rows: trading dates, columns: symbols). The start price must be a bar
     from the last few days before the date; the end price is the last price on or before the next date,
@@ -46,11 +47,11 @@ def forward_returns(prices: pd.DataFrame, dates: Sequence[date], with_flags: boo
     last_px = prices.ffill().reindex(ts, method="ffill")
     fresh = (ts.to_numpy()[:, None] - last_seen.to_numpy()) <= np.timedelta64(MAX_STALE_DAYS, "D")
     p0 = last_px.where(fresh)
-    rets = pd.DataFrame(last_px.to_numpy()[1:] / p0.to_numpy()[:-1] - 1, index=list(dates[:-1]),
+    rets = pd.DataFrame(last_px.to_numpy()[step:] / p0.to_numpy()[:-step] - 1, index=list(dates[:-step]),
                         columns=prices.columns)
     if not with_flags:
         return rets
-    ended = pd.DataFrame(~fresh[1:] & ~np.isnan(p0.to_numpy()[:-1]), index=list(dates[:-1]),
+    ended = pd.DataFrame(~fresh[step:] & ~np.isnan(p0.to_numpy()[:-step]), index=list(dates[:-step]),
                          columns=prices.columns)
     return rets, ended
 

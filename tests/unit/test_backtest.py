@@ -69,6 +69,13 @@ class ForwardReturnTests(unittest.TestCase):
         self.assertAlmostEqual(fr.loc[D("2023-03-31"), "BBB"], -0.05)
         self.assertNotIn(D("2023-06-30"), fr.index)  # last date has no next period
 
+    def test_step_gives_a_longer_horizon_return(self):
+        w = wide({"dates": ["2023-03-31", "2023-06-30", "2023-09-29"], "AAA": [10.0, 11.0, 12.1]})
+        dates = [D("2023-03-31"), D("2023-06-30"), D("2023-09-29")]
+        fr = engine.forward_returns(w, dates, step=2)
+        self.assertAlmostEqual(fr.loc[D("2023-03-31"), "AAA"], 0.21)
+        self.assertEqual(list(fr.index), [D("2023-03-31")])
+
     def test_stock_that_stops_trading_is_valued_at_its_last_price_and_flagged(self):
         w = wide({"dates": ["2023-03-31", "2023-05-15", "2023-06-30"], "AAA": [10.0, np.nan, np.nan],
                   "BBB": [10.0, 10.0, 10.0]})

@@ -143,20 +143,25 @@ def _log(msg: str) -> None:
 
 
 def build_panels(store: Any, dates: Sequence[date],  # pragma: no cover
-                 log: Callable[[str], None] = _log) -> pd.DataFrame:
+                 log: Callable[[str], None] = _log, with_factors: bool = False) -> pd.DataFrame:
+    """Per-date scored universe, cached. ``with_factors`` also keeps the individual factor values
+    (needed for factor-level tests) in a separate cache folder."""
     from sigma import screen
+    from sigma.factors.scoring import CATEGORIES
 
+    folder = "panels_v2" if with_factors else "panels"
+    extra = [f for fs in CATEGORIES.values() for f in fs] if with_factors else []
     frames = []
     for i, d in enumerate(dates, 1):
-        cache = store.path("backtests", "panels", f"{d}.parquet")
+        cache = store.path("backtests", folder, f"{d}.parquet")
         if not cache.exists():
             log(f"[{i}/{len(dates)}] building the screen as of {d}")
             uni, sectors, fund, mkt, _ = screen.load_inputs(store, d, log=lambda m: None)
             ranked, _ = screen.build_screen(fund, mkt, uni, sectors, screen.Filters())
             keep = ["symbol", "cik", "sector", "market_cap", "adv_usd", "sigma_score", "composite",
-                    "coverage", *[c for c in ranked.columns if c.startswith("cat_")]]
-            store.write(ranked[keep].assign(date=d), "backtests", "panels", f"{d}.parquet")
-        frames.append(store.read("backtests", "panels", f"{d}.parquet"))
+                    "coverage", *[c for c in ranked.columns if c.startswith("cat_")], *extra]
+            store.write(ranked[keep].assign(date=d), "backtests", folder, f"{d}.parquet")
+        frames.append(store.read("backtests", folder, f"{d}.parquet"))
     return pd.concat(frames, ignore_index=True)
 
 
