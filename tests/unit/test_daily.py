@@ -166,6 +166,7 @@ class StepTests(unittest.TestCase):
         msg = daily.step_estimates(self.store, fetch, ["A", "B", "C", "D"], self.today,
                                    daily.Budget(self.store.path("b.json")), lambda m: None)
         self.assertIn("2 of 4", msg)
+        self.assertIn("rate limit", msg)  # the reason reaches the report, not just the console
         self.assertEqual(len(self.store.read("estimates")), 2)
 
     def test_macro_twice_adds_nothing_new(self):

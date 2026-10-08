@@ -191,17 +191,19 @@ def step_estimates(store: ParquetStore, fetch: Fetch, symbols: Sequence[str], to
     chosen = pick_for_estimates(symbols, last, allowed)
     rows: list[dict[str, Any]] = []
     done = 0
+    stopped = ""
     try:
         for s in chosen:
             doc = fetch("/query", {"function": "EARNINGS_ESTIMATES", "symbol": s})
             rows += parse_estimates(doc, s, today)
             done += 1
     except ProviderLimit as e:
+        stopped = f"; Alpha Vantage stopped it: {e}"
         log(f"  Alpha Vantage stopped after {done} stocks: {e}")
     if rows:
         store.write(pd.DataFrame(rows), "estimates", f"{today.isoformat()}.parquet")
     return (f"{done} of {len(symbols)} stocks snapshotted today ({len(rows)} forecast rows); "
-            f"daily allowance {allowed}")
+            f"daily allowance {allowed}{stopped}")
 
 
 def step_macro(store: ParquetStore, fetch: Fetch, today: date, log: Log = _log) -> str:
