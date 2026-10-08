@@ -234,3 +234,17 @@ class EvaluateTests(unittest.TestCase):
         text = run.render(res, top_n=10)
         for needle in ("train", "validation", "SPY", "universe", "pessimistic", "sigma_score"):
             self.assertIn(needle, text)
+
+
+class ReturnsTableTests(unittest.TestCase):
+    def test_labels_each_period_and_aligns_the_benchmark(self):
+        from sigma.backtest import run
+        dates = [D("2020-06-30"), D("2022-06-30"), D("2024-06-28")]
+        rows = [{"date": d, "symbol": s, "sigma_score": sc, "fwd": f}
+                for d in dates for s, sc, f in (("A", 2.0, 0.10), ("B", 1.0, 0.00))]
+        panel = pd.DataFrame(rows)
+        bench = pd.DataFrame({"SPY": [0.01, 0.02, 0.03]}, index=dates)
+        t = run.returns_table(panel, bench, n=1)
+        self.assertEqual(list(t["period"]), ["train", "validation", "holdout"])
+        self.assertEqual(list(t["benchmark"]), [0.01, 0.02, 0.03])
+        self.assertAlmostEqual(t["strategy"].iloc[1], 0.10 - 0.0, places=2)  # A held again: no turnover cost

@@ -68,6 +68,17 @@ def evaluate(panel: pd.DataFrame, bench: pd.DataFrame, n: int = 40,
     return out
 
 
+def returns_table(panel: pd.DataFrame, bench: pd.DataFrame, n: int = 40, benchmark: str = "SPY",
+                  sp: splits.Splits = DEFAULT_SPLITS) -> pd.DataFrame:
+    """Per-period net return of the strategy (base costs) and a benchmark, with the period label.
+    The simulation engine reads this as its history."""
+    port = engine.run_portfolio(panel, n=n, cost_bps=engine.COST_BPS["base"])
+    col = benchmark if benchmark in bench.columns else bench.columns[0]
+    out = pd.DataFrame({"strategy": port["net"], "benchmark": bench[col].reindex(port.index)})
+    out["period"] = [sp.period_of(d) for d in out.index]
+    return out.rename_axis("date").reset_index()
+
+
 def splits_guard(sp: splits.Splits, ledger: Any) -> splits.HoldoutGuard:
     from pathlib import Path
     return splits.HoldoutGuard(sp, Path(ledger) if ledger else DEFAULT_DOTENV.parent / "holdout_ledger.txt")
@@ -196,6 +207,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — read
     data = data.merge(flag, on=["date", "symbol"], how="left")
     bench = fwd[[b for b in BENCHMARKS if b in fwd.columns]]
     res = evaluate(data, bench, n=args.top, splits=sp, unlock=args.unlock_holdout)
+    returns_table(data, bench, n=args.top, sp=sp).to_csv(DEFAULT_DOTENV.parent / "backtest_returns.csv",
+                                                         index=False)
     text = render(res, top_n=args.top)
     out = DEFAULT_DOTENV.parent / "backtest_report.txt"
     out.write_text(text + "\n", encoding="utf-8")
