@@ -73,6 +73,7 @@ ignore = ["N803", "N806", "N818"]  # finance symbols (FCF, EV) and descriptive e
 
 [tool.ruff.lint.per-file-ignores]
 "src/sigma/committee/*.py" = ["E501"]  # prose tables and long prompt strings read better unwrapped
+"src/sigma/final.py" = ["E501"]  # report prose
 "tests/**" = ["E501", "N812", "RUF005"]  # wide fixture rows; short module aliases (F, S) in tests
 
 [tool.mypy]
