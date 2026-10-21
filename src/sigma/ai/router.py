@@ -115,7 +115,7 @@ class _Circuit:
 
 @dataclass(frozen=True)
 class RouterPolicy:
-    max_rate_limit_retries: int = 2
+    max_rate_limit_retries: int = 4
     base_backoff_s: float = 2.0
     max_backoff_s: float = 30.0
     breaker_failure_threshold: int = 3

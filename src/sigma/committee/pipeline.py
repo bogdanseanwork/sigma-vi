@@ -98,19 +98,24 @@ def vote(asker: Asker, symbol: str, packet: str, persona: str) -> dict[str, Any]
             '{"vote":"own"|"avoid","confidence":0-100,"expected_return_24m_pct":number,'
             '"main_disagreement":"what would most likely make you wrong","evidence":["short fact from the packet",...]}')
     return parse_vote(ask_json(asker, f"vote:{symbol}:{persona}", f"{persona}", Role.REASONING,
-                               TaskClass.SCREEN, system, user))
+                               TaskClass.SPECIALIST, system, user))
 
 
 def run_votes(asker: Asker, packets: Mapping[str, str], panel: Sequence[str], log: Log | None = None
               ) -> pd.DataFrame:
     rows = []
-    for i, (sym, pk) in enumerate(packets.items(), 1):
+    total = len(packets) * len(panel)
+    done = 0
+    for sym, pk in packets.items():
         for persona in panel:
             v = vote(asker, sym, pk, persona)
             if v:
                 rows.append({"symbol": sym, "persona": persona, **v})
-        if log and i % 10 == 0:
-            log(f"  votes: {i}/{len(packets)} companies")
+            done += 1
+            if log and done % 25 == 0 and done != total:
+                log(f"  votes: {done}/{total}")
+    if log and total:
+        log(f"  votes: {done}/{total}")
     return pd.DataFrame(rows, columns=["symbol", "persona", "vote", "confidence", "expected_return_24m_pct",
                                        "main_disagreement", "evidence"])
 

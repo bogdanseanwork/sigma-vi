@@ -140,7 +140,7 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(sleeps, [2.0, 7])
 
     def test_rate_limit_exhausted_moves_on(self):
-        c = ScriptedClient({"a": [RateLimited()] * 3, "o": ["ok"]})
+        c = ScriptedClient({"a": [RateLimited()] * (RouterPolicy().max_rate_limit_retries + 1), "o": ["ok"]})
         self.assertEqual(self.run_task(make_router(c)).provider, "openai")
 
     def test_context_too_long_compresses_once(self):

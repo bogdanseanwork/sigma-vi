@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from sigma.ai.router import AllModelsFailed
 from sigma.committee import evidence, pipeline
 from sigma.committee.llm import OutOfBudget, RouterAsker
 from sigma.core.config import DEFAULT_DOTENV
@@ -27,6 +28,18 @@ from sigma.core.config import DEFAULT_DOTENV
 def _log(msg: str) -> None:
     sys.stdout.write(f"[{datetime.now():%H:%M:%S}] {msg}\n")
     sys.stdout.flush()
+
+
+def describe_failure(exc: AllModelsFailed) -> str:
+    """Multi-line, human-readable reason a call failed on every model (one short line per attempt)."""
+    lines = [f"Stopped: every model failed for task {exc.task_id}."]
+    for a in exc.attempts:
+        raw = a.get("detail") or a.get("error_class") or "unknown"
+        reason = " ".join(str(raw).split())[:160]
+        lines.append(f"  - {a.get('model', '?')}: {reason}")
+    lines.append("Nothing finished is lost. Fix the cause (or wait if a provider was busy) and run the "
+                 "same command again.")
+    return "\n".join(lines)
 
 
 def render(res: dict, cfg: pipeline.Config, calls: int) -> str:
@@ -96,6 +109,9 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs 
     except OutOfBudget as e:
         _log(f"Stopped: {e}. Run the same command again to continue; nothing finished is repeated.")
         return 0
+    except AllModelsFailed as e:
+        _log(describe_failure(e))
+        return 1
     text = render(res, cfg, asker.calls)
     (home / "committee_report.txt").write_text(text + "\n", encoding="utf-8")
     pipeline.dump(res, str(home / "committee_audit.json"))
