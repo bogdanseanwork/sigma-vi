@@ -78,14 +78,15 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs 
     from sigma.core.config import export_dotenv
     from sigma.data.paths import data_dir
     from sigma.data.store import ParquetStore
+    from sigma.screen import pick_screen
 
     ap = argparse.ArgumentParser(prog="python -m sigma.committee.run")
     ap.add_argument("--max-calls", type=int, default=400)
-    ap.add_argument("--screen", default=None, help="screen CSV (default: the newest screen_*.csv)")
+    ap.add_argument("--screen", default=None, help="screen CSV (default: the newest full-market screen_*.csv)")
     args = ap.parse_args(argv)
     export_dotenv()
     home = DEFAULT_DOTENV.parent
-    path = Path(args.screen) if args.screen else max(home.glob("screen_*.csv"), key=lambda p: p.stat().st_mtime)
+    path = Path(args.screen) if args.screen else pick_screen(home, log=_log)
     screen = pd.read_csv(path)
     cands = screen[screen["stage"] == "advance"].sort_values("sigma_score", ascending=False)
     _log(f"{len(cands)} companies from {path.name}")

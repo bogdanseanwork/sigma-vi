@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -177,7 +178,7 @@ def chunks(items: Sequence[str], size: int) -> list[list[str]]:
 
 
 def step_prices(store: ParquetStore, clients: Mapping[str, HttpClient], log: Log = _log,
-                end: date | None = None) -> int:
+                end: date | None = None, folder: str = "prices") -> int:
     uni = store.read("universe.parquet")
     symbols = universe.price_symbols(uni.to_dict("records"))
     end = end or (date.today() - timedelta(days=1))
@@ -187,7 +188,7 @@ def step_prices(store: ParquetStore, clients: Mapping[str, HttpClient], log: Log
     for adjustment in ("raw", "all"):
         for i, batch in enumerate(batches):
             name = f"batch-{i:04d}.parquet"
-            if store.exists("prices", adjustment, name):
+            if store.exists(folder, adjustment, name):
                 continue
 
             def fetch(params: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -195,9 +196,32 @@ def step_prices(store: ParquetStore, clients: Mapping[str, HttpClient], log: Log
 
             rows = _bars_dropping_rejected(fetch, batch, end, adjustment, log)
             total += store.write(rows if rows else pd.DataFrame(columns=["symbol", "date"]),
-                                 "prices", adjustment, name)
+                                 folder, adjustment, name)
             log(f"  {adjustment}: batch {i + 1}/{len(batches)} done ({len(rows):,} bars)")
     log(f"  prices saved: {total:,} new bars")
+    return total
+
+
+REFRESH_FOLDER = "prices_refresh"
+
+
+def refresh_prices(store: ParquetStore, clients: Mapping[str, HttpClient], log: Log = _log,
+                   end: date | None = None) -> int:
+    """Re-download whole-market prices up to ``end`` and swap them in only once complete.
+
+    A full re-download (not an append) keeps split- and dividend-adjusted history consistent. The new
+    set builds in a side folder, resumable like the first load; the current prices stay in use until
+    every batch is done, then the folders swap.
+    """
+    total = step_prices(store, clients, log, end, folder=REFRESH_FOLDER)
+    old = store.path("prices")
+    retired = store.path(f"prices_old_{datetime.now():%Y%m%d%H%M%S}")
+    if old.exists():
+        old.replace(retired)
+    store.path(REFRESH_FOLDER).replace(old)
+    if retired.exists():
+        shutil.rmtree(retired, ignore_errors=True)
+    log("  refreshed prices are now in use")
     return total
 
 
@@ -266,6 +290,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — orch
     ap = argparse.ArgumentParser(prog="python -m sigma.data.load")
     ap.add_argument("step", nargs="?", default="all",
                     choices=["all", "universe", "links", "fundamentals", "prices", "sectors", "report"])
+    ap.add_argument("--refresh", action="store_true",
+                    help="with 'prices': re-download whole-market prices up to yesterday")
     args = ap.parse_args(argv)
     export_dotenv()
     env = dict(os.environ)
@@ -281,7 +307,10 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover — orch
         elif step == "prices":
             if not store.exists("universe.parquet"):
                 step_universe(store, clients)
-            step_prices(store, clients)
+            if args.refresh:
+                refresh_prices(store, clients)
+            else:
+                step_prices(store, clients)
         elif step == "links":
             step_links(store, clients)
         elif step == "sectors":

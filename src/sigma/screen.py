@@ -17,6 +17,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -65,6 +66,37 @@ class Filters:
 
 
 DEFAULT_FILTERS = Filters()
+
+# A price date counts as whole-market when it has at least this share of the busiest recent date's
+# symbols. After the one-time bulk load, the daily refresh only adds the watchlist, so later dates
+# hold ~30 symbols; screening on them would silently shrink the "whole market" to the watchlist.
+BROAD_COVERAGE_SHARE = 0.5
+
+
+def broad_coverage_date(bars: pd.DataFrame, share: float = BROAD_COVERAGE_SHARE) -> date:
+    """Latest date whose symbol count is at least ``share`` of the busiest date in ``bars``."""
+    counts = bars.groupby("date")["symbol"].nunique()
+    if counts.empty:
+        raise ValueError("no price bars to choose a screen date from")
+    return max(counts[counts >= share * counts.max()].index)
+
+
+def pick_screen(folder: Path, min_advance: int = DEFAULT_FILTERS.stage2,
+                log: Callable[[str], None] | None = None) -> Path:
+    """Newest screen_*.csv with a full stage-2 list; a smaller (watchlist-only) screen is skipped."""
+    log = log or _log
+    files = sorted(folder.glob("screen_*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not files:
+        raise FileNotFoundError(f"no screen_*.csv in {folder}; run python -m sigma.screen first")
+    for p in files:
+        n = int((pd.read_csv(p, usecols=["stage"])["stage"] == "advance").sum())
+        if n >= min_advance:
+            if p != files[0]:
+                log(f"Using {p.name}: newer screens advance fewer than {min_advance} companies "
+                    f"(they cover only part of the market), so they are skipped.")
+            return p
+    log(f"WARNING: no screen advances {min_advance} companies; using the newest, {files[0].name}.")
+    return files[0]
 
 
 def build_screen(fund: pd.DataFrame, mkt: pd.DataFrame, uni: pd.DataFrame, sectors: pd.DataFrame,
@@ -187,7 +219,14 @@ def load_inputs(store: Any, as_of: date | None, log: Callable[[str], None] | Non
         sectors = pd.DataFrame(columns=["cik", "sic", "sector"])
     if as_of is None:
         spy = store.read("prices", "raw", columns=["symbol", "date"], filters=[("symbol", "=", "SPY")])
-        as_of = max(_dates(spy, "date")["date"])
+        latest = max(_dates(spy, "date")["date"])
+        recent = _dates(store.read("prices", "raw", columns=["symbol", "date"],
+                                   filters=[("date", ">=", latest - timedelta(days=120))]), "date")
+        as_of = broad_coverage_date(recent)
+        if as_of < latest:
+            log(f"Whole-market prices end on {as_of}; later days cover only the watchlist, so the screen "
+                f"is as of {as_of}. To screen today, refresh first:  "
+                ".\\.venv\\Scripts\\python.exe -m sigma.data.load prices --refresh")
     log(f"Screen as of {as_of}: loading prices...")
     since = as_of - timedelta(days=400)
     pf = [("date", ">=", since), ("date", "<=", as_of)]

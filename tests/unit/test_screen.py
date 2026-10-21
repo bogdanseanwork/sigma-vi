@@ -105,5 +105,32 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Information Technology", text)
 
 
+
+class ScreenDateTests(unittest.TestCase):
+    def test_broad_coverage_date_skips_watchlist_only_days(self):
+        rows = [{"symbol": f"S{i}", "date": date(2026, 10, 6)} for i in range(100)]
+        rows += [{"symbol": f"S{i}", "date": date(2026, 10, 19)} for i in range(30)]
+        self.assertEqual(screen.broad_coverage_date(pd.DataFrame(rows)), date(2026, 10, 6))
+
+    def test_broad_coverage_date_is_the_latest_full_day(self):
+        rows = [{"symbol": f"S{i}", "date": d} for d in (date(2026, 10, 5), date(2026, 10, 6)) for i in range(90)]
+        self.assertEqual(screen.broad_coverage_date(pd.DataFrame(rows)), date(2026, 10, 6))
+
+    def test_pick_screen_skips_a_newer_partial_screen(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            full, part = Path(d) / "screen_2026-10-06.csv", Path(d) / "screen_2026-10-19.csv"
+            pd.DataFrame({"stage": ["advance"] * 150 + ["screened"] * 10}).to_csv(full, index=False)
+            pd.DataFrame({"stage": ["advance"] * 29}).to_csv(part, index=False)
+            os.utime(full, (1, 1))
+            log = []
+            self.assertEqual(screen.pick_screen(Path(d), log=log.append), full)
+            self.assertIn("skipped", log[0])
+            pd.DataFrame({"stage": ["advance"] * 150}).to_csv(part, index=False)
+            self.assertEqual(screen.pick_screen(Path(d), log=log.append), part)
+
+
 if __name__ == "__main__":
     unittest.main()

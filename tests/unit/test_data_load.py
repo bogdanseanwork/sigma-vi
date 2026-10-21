@@ -140,6 +140,19 @@ class LoaderTests(unittest.TestCase):
         load.step_prices(self.store, self.clients, self.log.append, end=date(2016, 1, 31))
         self.assertEqual(len(self.clients["alpaca_data"].calls), calls)
 
+    def test_refresh_rebuilds_prices_and_swaps_only_when_done(self):
+        load.step_universe(self.store, self.clients, self.log.append)
+        load.step_prices(self.store, self.clients, self.log.append, end=date(2016, 1, 31))
+        self.store.write([{"symbol": "AAPL", "date": date(2016, 2, 1)}], "prices", "raw", "daily-x.parquet")
+        calls = len(self.clients["alpaca_data"].calls)
+        load.refresh_prices(self.store, self.clients, self.log.append, end=date(2016, 1, 31))
+        self.assertGreater(len(self.clients["alpaca_data"].calls), calls)  # re-downloaded, not skipped
+        self.assertFalse(self.store.exists(load.REFRESH_FOLDER))
+        self.assertFalse(any(p.name.startswith("prices_old_") for p in Path(self.tmp.name).iterdir()))
+        self.assertFalse(self.store.exists("prices", "raw", "daily-x.parquet"))  # replaced by the full set
+        raw = self.store.read("prices", "raw")
+        self.assertEqual(sorted(raw["symbol"].unique()), ["AAPL", "MSFT", "OLDCO", "SPY"])
+
 
 if __name__ == "__main__":
     unittest.main()

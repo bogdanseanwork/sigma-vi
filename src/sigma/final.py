@@ -230,7 +230,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - reads 
         return 1
     audit = json.loads(audit_p.read_text(encoding="utf-8"))
     table = pd.read_csv(table_p, index_col="symbol")
-    screen = pd.read_csv(max(home.glob("screen_*.csv"), key=lambda p: p.stat().st_mtime))
+    from sigma.screen import pick_screen
+    screen = pd.read_csv(pick_screen(home))
     top, watch = assemble(table, screen, {s: d for s, d in audit["debates"].items()})
     risk = None
     store = ParquetStore(data_dir())
