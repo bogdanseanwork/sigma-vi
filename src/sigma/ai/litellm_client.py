@@ -47,6 +47,7 @@ class LiteLLMClient:
             import litellm
         except ImportError as e:  # pragma: no cover
             raise RuntimeError("litellm is not installed; pip install 'sigma-vi[ai]'") from e
+        litellm.suppress_debug_info = True  # SIGMA prints one clear line per failure instead of LiteLLM's banner
         self._litellm = litellm
         export_dotenv()  # make .env keys (e.g. GEMINI_API_KEY) visible to LiteLLM
 

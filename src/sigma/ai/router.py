@@ -144,6 +144,11 @@ class RouterResult:
 Compressor = Callable[[Sequence[Message], int], Sequence[Message]]
 
 
+def _first_line(text: str, limit: int = 160) -> str:
+    line = next((x.strip() for x in text.splitlines() if x.strip()), "no detail")
+    return line if len(line) <= limit else line[: limit - 3] + "..."
+
+
 class ModelRouter:
     def __init__(
         self,
@@ -156,6 +161,7 @@ class ModelRouter:
         policy: RouterPolicy | None = None,
         clock: Callable[[], datetime] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        notify: Callable[[str], None] | None = None,
     ):
         self.registry = registry
         self.client = client
@@ -166,6 +172,7 @@ class ModelRouter:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._sleep = sleep
         self._circuits: dict[str, _Circuit] = {}
+        self._notify = notify or (lambda _msg: None)
 
     # -- circuit breaker ------------------------------------------------------------------------
     def _circuit(self, provider: str) -> _Circuit:
@@ -241,16 +248,19 @@ class ModelRouter:
                         delay = e.retry_after_s or min(
                             self.policy.base_backoff_s * 2 ** (retries - 1), self.policy.max_backoff_s
                         )
+                        self._notify(f"  {spec.id} busy or rate-limited; retry {retries} in {delay:.0f}s")
                         self._sleep(delay)
                         continue
                     self._record_failure(spec.provider)
                     attempts.append({"model": spec.id, "error_class": "rate_limited"})
+                    self._notify(f"  {spec.id} still rate-limited; trying the next model")
                     break
                 except QuotaExceeded:
                     self._log(task_id, agent, task_class, role, spec, est_in, 0, started, False,
                               "quota_exceeded", failed_models)
                     self._record_failure(spec.provider, cooldown=self.policy.quota_cooldown)
                     attempts.append({"model": spec.id, "error_class": "quota_exceeded"})
+                    self._notify(f"  {spec.id} daily free quota used up; trying the next model")
                     break
                 except ContextTooLong:
                     self._log(task_id, agent, task_class, role, spec, est_in, 0, started, False,
@@ -267,6 +277,7 @@ class ModelRouter:
                     self._record_failure(spec.provider)
                     attempts.append({"model": spec.id, "error_class": "unavailable",
                                      "detail": redact(str(e))[:200]})
+                    self._notify(f"  {spec.id} unavailable ({_first_line(redact(str(e)))}); trying the next model")
                     break
 
                 # success

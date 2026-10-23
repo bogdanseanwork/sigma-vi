@@ -102,7 +102,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs 
 
     providers = {"ollama"} | ({"gemini"} if os.environ.get("GEMINI_API_KEY") else set())
     router = ModelRouter(ModelRegistry.from_toml(), LiteLLMClient(), available_providers=providers,
-                         checkpoints=Store(store.path("committee", "checkpoints.jsonl")))
+                         checkpoints=Store(store.path("committee", "checkpoints.jsonl")), notify=_log)
     asker = RouterAsker(router, max_calls=args.max_calls)
     cfg = pipeline.DEFAULT
     try:

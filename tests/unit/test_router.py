@@ -69,6 +69,7 @@ def make_router(client, providers=("anthropic", "openai", "gemini"), **kw):
         ledger=kw.pop("ledger", InMemoryLedger(clock)),
         checkpoints=kw.pop("checkpoints", InMemoryCheckpointStore()),
         policy=kw.pop("policy", RouterPolicy(**PAID)), clock=clock, sleep=sleeps.append,
+        notify=kw.pop("notify", None),
     )
 
 
@@ -83,6 +84,17 @@ class RouterTests(unittest.TestCase):
         r = self.run_task(make_router(c))
         self.assertEqual((r.text, r.provider, r.fallbacks), ("ok", "anthropic", []))
         self.assertAlmostEqual(r.cost_usd, (100 * 1.0 + 50 * 5.0) / 1e6)
+
+    def test_failures_are_reported_in_one_line_each(self):
+        notes = []
+        c = ScriptedClient({"a": [ProviderUnavailable("401 bad key\nlong trace")], "o": [QuotaExceeded()],
+                            "g": ["ok"]})
+        r = self.run_task(make_router(c, notify=notes.append))
+        self.assertEqual(r.text, "ok")
+        self.assertEqual(len(notes), 2)
+        self.assertIn("unavailable (401 bad key)", notes[0])
+        self.assertNotIn("long trace", notes[0])
+        self.assertIn("quota", notes[1])
 
     def test_quota_falls_back_and_opens_circuit(self):
         c = ScriptedClient({"a": [QuotaExceeded("usage limit")], "o": ["from openai", "again"]})
