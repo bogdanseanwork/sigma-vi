@@ -36,6 +36,10 @@ class FileCheckpointStore:
                     rec = json.loads(line)
                     self._data[rec["task_id"]] = rec["state"]
 
+    def states(self) -> dict[str, dict[str, Any]]:
+        """Latest saved state of every task (a copy)."""
+        return {k: dict(v) for k, v in self._data.items()}
+
     def load(self, task_id: str) -> dict[str, Any] | None:
         s = self._data.get(task_id)
         return dict(s) if s else None

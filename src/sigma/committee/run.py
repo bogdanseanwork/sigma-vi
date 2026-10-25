@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +21,7 @@ import pandas as pd
 
 from sigma.ai.router import AllModelsFailed
 from sigma.committee import evidence, pipeline
+from sigma.committee.personas import ROUNDS
 from sigma.committee.llm import OutOfBudget, RouterAsker
 from sigma.core.config import DEFAULT_DOTENV
 
@@ -40,6 +41,43 @@ def describe_failure(exc: AllModelsFailed) -> str:
     lines.append("Nothing finished is lost. Fix the cause (or wait if a provider was busy) and run the "
                  "same command again.")
     return "\n".join(lines)
+
+
+STAGES = (("vote", "A  blind votes"), ("debate", "B  8-round debates"), ("red", "C  red team"),
+          ("duel", "D  tournament"))
+
+
+def planned_calls(n_companies: int, cfg: pipeline.Config) -> dict[str, int]:
+    """Model calls each stage needs when every reply is usable (retries add a few)."""
+    n_debate = min(cfg.keep_after_votes, n_companies)
+    n_red = min(cfg.keep_after_debate, n_debate)
+    return {"vote": n_companies * len(cfg.panel), "debate": n_debate * (len(ROUNDS) + 1), "red": n_red,
+            "duel": 2 * len(pipeline._pairs([str(i) for i in range(n_red)], cfg.tournament_opponents, cfg.seed))}
+
+
+def progress(states: Mapping[str, Mapping], n_companies: int, cfg: pipeline.Config) -> str:
+    """How far the committee has got, from its saved checkpoints (no model calls)."""
+    done = dict.fromkeys(planned_calls(n_companies, cfg), 0)
+    parked = 0
+    for task_id, st in states.items():
+        if "#retry" in task_id:
+            continue
+        stage = task_id.split(":", 1)[0]
+        if st.get("status") == "completed" and stage in done:
+            done[stage] += 1
+        elif st.get("status") == "parked":
+            parked += 1
+    plan = planned_calls(n_companies, cfg)
+    total_done, total = sum(min(done[k], plan[k]) for k in plan), sum(plan.values())
+    L = [f"SIGMA VI committee progress - {datetime.now():%Y-%m-%d %H:%M}",
+         f"{n_companies} companies. Finished model calls are saved; a re-run continues from here.", ""]
+    for key, label in STAGES:
+        d, p = min(done[key], plan[key]), plan[key]
+        L.append(f"  {label:<20} {d:>5,} / {p:<5,}  {100 * d / p if p else 100:5.1f}%")
+    L += ["", f"  overall              {total_done:>5,} / {total:<5,}  {100 * total_done / total:5.1f}%"]
+    if parked:
+        L.append(f"  {parked} call(s) failed on every model last time; they are retried on the next run.")
+    return "\n".join(L)
 
 
 def render(res: dict, cfg: pipeline.Config, calls: int) -> str:
@@ -82,6 +120,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs 
 
     ap = argparse.ArgumentParser(prog="python -m sigma.committee.run")
     ap.add_argument("--max-calls", type=int, default=400)
+    ap.add_argument("--status", action="store_true",
+                    help="only show how far the committee has got (no model calls)")
     ap.add_argument("--screen", default=None, help="screen CSV (default: the newest full-market screen_*.csv)")
     args = ap.parse_args(argv)
     export_dotenv()
@@ -100,19 +140,37 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs 
                                       evidence.estimates_line(est, r["symbol"]) if len(est) else "") if x)
         packets[r["symbol"]] = evidence.packet(r, extra)
 
+    checkpoints = Store(store.path("committee", "checkpoints.jsonl"))
+    cfg = pipeline.DEFAULT
+
+    def save_progress() -> None:
+        text = progress(checkpoints.states(), len(cands), cfg)
+        (home / "committee_progress.txt").write_text(text + "\n", encoding="utf-8")
+        sys.stdout.write("\n" + text + "\n")
+
+    if args.status:
+        save_progress()
+        return 0
+
     providers = {"ollama"} | ({"gemini"} if os.environ.get("GEMINI_API_KEY") else set())
     router = ModelRouter(ModelRegistry.from_toml(), LiteLLMClient(), available_providers=providers,
-                         checkpoints=Store(store.path("committee", "checkpoints.jsonl")), notify=_log)
+                         checkpoints=checkpoints, notify=_log)
     asker = RouterAsker(router, max_calls=args.max_calls)
-    cfg = pipeline.DEFAULT
     try:
         res = pipeline.run_pipeline(cands[["symbol", "sigma_score"]], packets, asker, cfg, log=_log)
     except OutOfBudget as e:
         _log(f"Stopped: {e}. Run the same command again to continue; nothing finished is repeated.")
+        save_progress()
         return 0
     except AllModelsFailed as e:
         _log(describe_failure(e))
+        save_progress()
         return 1
+    except KeyboardInterrupt:
+        _log("Stopped by you (Ctrl+C). Everything finished so far is saved; run the same command to continue.")
+        save_progress()
+        return 130
+    save_progress()
     text = render(res, cfg, asker.calls)
     (home / "committee_report.txt").write_text(text + "\n", encoding="utf-8")
     pipeline.dump(res, str(home / "committee_audit.json"))

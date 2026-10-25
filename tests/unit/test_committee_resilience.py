@@ -130,5 +130,25 @@ class ClientMappingTests(unittest.TestCase):
         self.assertGreaterEqual(mod.calls[0]["timeout"], 900.0)
 
 
+
+class ProgressTests(unittest.TestCase):
+    def test_progress_counts_finished_calls_per_stage(self):
+        from sigma.committee import pipeline
+        from sigma.committee.run import planned_calls, progress
+        cfg = pipeline.DEFAULT
+        plan = planned_calls(150, cfg)
+        self.assertEqual(plan["vote"], 150 * len(cfg.panel))
+        self.assertEqual(plan["debate"], 100 * 9)
+        self.assertEqual(plan["red"], 60)
+        states = {f"vote:S{i}:p": {"status": "completed"} for i in range(300)}
+        states["vote:S0:p#retry"] = {"status": "completed"}   # retries are not double-counted
+        states["debate:S0:1"] = {"status": "completed"}
+        states["vote:X:p"] = {"status": "parked"}
+        text = progress(states, 150, cfg)
+        self.assertIn(f"300 / {plan['vote']:<5,}", text)
+        self.assertIn("1 call(s) failed on every model", text)
+        self.assertIn(f"{301:>5,} / {sum(plan.values()):<5,}", text)
+
+
 if __name__ == "__main__":
     unittest.main()
