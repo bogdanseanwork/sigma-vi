@@ -152,3 +152,13 @@ class ProgressTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TopOptionTests(unittest.TestCase):
+    def test_planned_calls_shrink_with_a_smaller_top(self):
+        from sigma.committee import pipeline
+        from sigma.committee.run import planned_calls
+        small = sum(planned_calls(40, pipeline.DEFAULT).values())
+        full = sum(planned_calls(150, pipeline.DEFAULT).values())
+        self.assertLess(small, full / 2)
+

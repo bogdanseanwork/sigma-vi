@@ -120,6 +120,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs 
 
     ap = argparse.ArgumentParser(prog="python -m sigma.committee.run")
     ap.add_argument("--max-calls", type=int, default=400)
+    ap.add_argument("--top", type=int, default=None,
+                    help="only the N best companies by quant score (fewer model calls; e.g. --top 40)")
     ap.add_argument("--status", action="store_true",
                     help="only show how far the committee has got (no model calls)")
     ap.add_argument("--screen", default=None, help="screen CSV (default: the newest full-market screen_*.csv)")
@@ -129,6 +131,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs 
     path = Path(args.screen) if args.screen else pick_screen(home, log=_log)
     screen = pd.read_csv(path)
     cands = screen[screen["stage"] == "advance"].sort_values("sigma_score", ascending=False)
+    if args.top:
+        cands = cands.head(args.top)
     _log(f"{len(cands)} companies from {path.name}")
 
     store = ParquetStore(data_dir())
